@@ -1,0 +1,45 @@
+[package]
+name = "xarchive"
+version = "0.1.0"
+description = "A portable desktop tool for manually archiving X media"
+authors = ["BErrybearl"]
+license = "MIT"
+publish = false
+edition = "2024"
+rust-version = "1.90"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "xarchive_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+tauri-build = { version = "2.7.2", features = [] }
+
+[dependencies]
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+regex = "=1.13.1"
+reqwest = { version = "=0.13.5", default-features = false, features = ["blocking", "rustls-no-provider", "query", "gzip", "brotli", "socks"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "backup", "blob"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.11.0"
+tauri = { version = "2.12.3", features = [] }
+tauri-plugin-dialog = "2.8.2"
+tempfile = "3.27.0"
+tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
+url = "2.5.8"
+zeroize = "1.8"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Registry", "Win32_Storage_FileSystem"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

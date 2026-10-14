@@ -1,0 +1,19 @@
+* text=auto
+*.md text eol=lf
+*.rs text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.svelte text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+scripts/license-templates/*.txt text eol=lf
+
+# SPDX template hashes require the original LF bytes on every checkout.
+scripts/license-templates/*.txt text eol=lf
+
+# Preserve imported reference bytes, including patch context whitespace.
+reference/python/** -text -whitespace

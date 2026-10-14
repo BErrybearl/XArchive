@@ -1,0 +1,14 @@
+{
+  "data": {
+    "user": {
+      "result": {
+        "__typename": "User",
+        "rest_id": "90100",
+        "legacy": {
+          "screen_name": "media_sample",
+          "name": "合成目标账号"
+        }
+      }
+    }
+  }
+}

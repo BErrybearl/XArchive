@@ -1,0 +1,16 @@
+{
+  "data": {
+    "viewer": {
+      "user_results": {
+        "result": {
+          "__typename": "User",
+          "rest_id": "90000",
+          "core": {
+            "screen_name": "probe_sample",
+            "name": "合成登录账号"
+          }
+        }
+      }
+    }
+  }
+}

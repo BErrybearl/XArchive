@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Run before stylesheets and the application module can produce a frame.
+      (() => {
+        let theme = 'light';
+        try {
+          const saved = localStorage.getItem('xarchive-theme');
+          if (saved === 'dark' || saved === 'system') theme = saved;
+        } catch { /* Use the default when storage is unavailable. */ }
+        document.documentElement.dataset.theme = theme === 'system'
+          ? matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+          : theme;
+      })();
+    </script>
+    <title>XArchive</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

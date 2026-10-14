@@ -1,0 +1,47 @@
+{
+  "upstreamFiles": {
+    "THIRD_PARTY_NOTICES.md": "9d90b9137ffb354f87abb8b4310ac20492fa435ffe7514f3d7aeb3244340abf7"
+  },
+  "publicRepositories": [
+    "CandyACE/x-downloader",
+    "rust-lang/crates.io-index",
+    "sponsors/ai",
+    "sponsors/oxc-project",
+    "sponsors/sxzz",
+    "sponsors/jonschlinkert",
+    "sponsors/SuperchupuDev",
+    "vitejs/vite"
+  ],
+  "upstreamEmailExceptions": [
+    {
+      "file": "THIRD_PARTY_NOTICES.md",
+      "localPart": "jonasschievink",
+      "domain": "gmail.com",
+      "licenseSha256": "861399f8c21c042b110517e76dc6b63a2b334276c8cf17412fc3c8908ca8dc17"
+    },
+    {
+      "file": "THIRD_PARTY_NOTICES.md",
+      "localPart": "jpixton",
+      "domain": "gmail.com",
+      "licenseSha256": "7cfafc877eccc46c0e346ccbaa5c51bb6b894d2b818e617d970211e232785ad4"
+    },
+    {
+      "file": "THIRD_PARTY_NOTICES.md",
+      "localPart": "jpixton",
+      "domain": "gmail.com",
+      "licenseSha256": "709e3175b4212f7b13aa93971c9f62ff8c69ec45ad8c6532a7e0c41d7a7d6f8c"
+    },
+    {
+      "file": "THIRD_PARTY_NOTICES.md",
+      "localPart": "dirkjan",
+      "domain": "ochtman.nl",
+      "licenseSha256": "9117d922e667125508dde62b02c1f57ed22f5ad21eb536aa2e2d99e1c796e639"
+    },
+    {
+      "file": "THIRD_PARTY_NOTICES.md",
+      "localPart": "tituswormer",
+      "domain": "gmail.com",
+      "licenseSha256": "1e697ce8d21401fbf1bddd9b5c3fd4c4c79ae1e3bdf51f81761c85e11d5a89cd"
+    }
+  ]
+}

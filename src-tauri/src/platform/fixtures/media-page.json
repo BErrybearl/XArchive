@@ -1,0 +1,226 @@
+{
+  "data": {
+    "user": {
+      "result": {
+        "timeline_v2": {
+          "timeline": {
+            "instructions": [
+              {
+                "type": "TimelineAddEntries",
+                "entries": [
+                  {
+                    "entryId": "sample-module",
+                    "content": {
+                      "items": [
+                        {
+                          "item": {
+                            "itemContent": {
+                              "itemType": "TimelineTweet",
+                              "tweet_results": {
+                                "result": {
+                                  "__typename": "Tweet",
+                                  "rest_id": "90001",
+                                  "legacy": {
+                                    "id_str": "90001",
+                                    "extended_entities": {
+                                      "media": [
+                                        {
+                                          "type": "photo",
+                                          "media_key": "sample_photo",
+                                          "media_url_https": "https://example.invalid/sample.jpg"
+                                        },
+                                        {
+                                          "type": "photo",
+                                          "media_key": "sample_photo",
+                                          "media_url_https": "https://example.invalid/sample.jpg"
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "item": {
+                            "itemContent": {
+                              "itemType": "TimelineTweet",
+                              "tweet_results": {
+                                "result": {
+                                  "__typename": "Tweet",
+                                  "rest_id": "90002",
+                                  "legacy": {
+                                    "id_str": "90002",
+                                    "extended_entities": {
+                                      "media": [
+                                        {
+                                          "type": "video",
+                                          "video_info": {
+                                            "variants": [
+                                              {
+                                                "content_type": "application/x-mpegURL",
+                                                "url": "https://example.invalid/video.m3u8"
+                                              },
+                                              {
+                                                "content_type": "video/mp4",
+                                                "bitrate": 256000,
+                                                "url": "https://example.invalid/low.mp4"
+                                              },
+                                              {
+                                                "content_type": "video/mp4",
+                                                "bitrate": 2176000,
+                                                "url": "https://example.invalid/high.mp4"
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "item": {
+                            "itemContent": {
+                              "itemType": "TimelineTweet",
+                              "tweet_results": {
+                                "result": {
+                                  "__typename": "TweetWithVisibilityResults",
+                                  "tweet": {
+                                    "__typename": "Tweet",
+                                    "rest_id": "90003",
+                                    "legacy": {
+                                      "id_str": "90003",
+                                      "extended_entities": {
+                                        "media": [
+                                          {
+                                            "type": "animated_gif",
+                                            "video_info": {
+                                              "variants": [
+                                                {
+                                                  "content_type": "video/mp4",
+                                                  "url": "https://example.invalid/animation.mp4"
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "item": {
+                            "itemContent": {
+                              "itemType": "TimelineTweet",
+                              "tweet_results": {
+                                "result": {
+                                  "__typename": "Tweet",
+                                  "rest_id": "90004",
+                                  "legacy": {
+                                    "retweeted_status_result": {
+                                      "result": {
+                                        "__typename": "Tweet",
+                                        "rest_id": "90040",
+                                        "legacy": {
+                                          "id_str": "90040",
+                                          "extended_entities": {
+                                            "media": [
+                                              {
+                                                "type": "photo",
+                                                "media_key": "sample_photo",
+                                                "media_url_https": "https://example.invalid/sample.jpg"
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "item": {
+                            "itemContent": {
+                              "itemType": "TimelineTweet",
+                              "tweet_results": {
+                                "result": {
+                                  "__typename": "TweetTombstone"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "item": {
+                            "itemContent": {
+                              "itemType": "TimelineTweet",
+                              "tweet_results": {
+                                "result": {
+                                  "__typename": "TweetUnavailable"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "item": {
+                            "itemContent": {
+                              "itemType": "TimelineTweet",
+                              "tweet_results": {
+                                "result": {
+                                  "__typename": "Tweet",
+                                  "rest_id": "90001",
+                                  "legacy": {
+                                    "id_str": "90001",
+                                    "extended_entities": {
+                                      "media": [
+                                        {
+                                          "type": "photo",
+                                          "media_key": "sample_photo",
+                                          "media_url_https": "https://example.invalid/sample.jpg"
+                                        },
+                                        {
+                                          "type": "photo",
+                                          "media_key": "sample_photo",
+                                          "media_url_https": "https://example.invalid/sample.jpg"
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "entryId": "cursor-bottom",
+                    "content": {
+                      "entryType": "TimelineTimelineCursor",
+                      "cursorType": "Bottom",
+                      "value": "synthetic_cursor"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

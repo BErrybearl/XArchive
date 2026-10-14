@@ -1,0 +1,56 @@
+# Local migration and development state
+/.local/
+/.runtime/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.tmp
+*.temp
+
+# Dependencies and generated build outputs
+node_modules/
+target/
+/.svelte-kit/
+/dist/
+/build/
+/src-tauri/gen/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Runtime data and private configuration
+/data/
+/media/
+/archives/
+/exports/
+/logs/
+/private/
+config.json
+location.json
+archive-options.json
+account.txt
+installation.json
+deployment-manifest.json
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.dpapi
+*.log
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Portable executables and debug artifacts
+*.exe
+*.pdb

@@ -1,0 +1,36 @@
+{
+  "name": "xarchive",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "check": "svelte-check --workspace ./src --tsconfig ../tsconfig.json --config ../svelte.config.js",
+    "build": "npm run check && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build --no-bundle",
+    "doctor": "node scripts/check-environment.mjs",
+    "test:storage": "node --test checks/storage-schema.test.mjs",
+    "test:ui": "node --test checks/ui.test.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.3"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@tauri-apps/cli": "2.12.2",
+    "@types/node": "24.19.2",
+    "svelte": "5.57.2",
+    "svelte-check": "4.7.6",
+    "typescript": "6.0.3",
+    "vite": "8.3.4"
+  },
+  "description": "A portable desktop tool for personal X media archives",
+  "author": "BErrybearl",
+  "license": "MIT"
+}
