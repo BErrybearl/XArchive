@@ -357,6 +357,8 @@ impl Store {
                 Err(_) => orphaned.push(entity.relative),
             }
         }
+        // Empty-folder cleanup must not hide an already committed deletion result.
+        let _ = super::layout::cleanup_empty(&self.root.join("media"), true);
         Ok(DeleteResult {
             deleted: plan.preview,
             backup: friendly_path(&backup).to_string_lossy().into_owned(),

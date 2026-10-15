@@ -13,6 +13,7 @@
     inspectAccount, resetAccountProgress, openMediaDirectory, sameArchiveOptions,
     chooseExportDirectory, readExportDirectory, openExportDirectory, startExport, readExportStatus, stopExport,
     type ExportProgress, type ExportOptions,
+    readLayoutStatus, organizeMedia, stopLayout, type LayoutProgress, type StorageLayout,
     type AccountDataRow, type DeleteScope, type DeletePreview, type DeleteResult, type IntegrityReport,
     type StorageStatus, type LoginStatus, type ArchiveProgress, type ArchivedAccount,
     type ProbeResult, type LegacySelection, type LegacyReport, type LegacyProgress, type DiagnosticReport, type RefreshResult } from './lib/program';
@@ -69,7 +70,14 @@
   let diagnostic = $state<DiagnosticReport|null>(null);
   let probe = $state<ProbeResult|null>(null);
   let refreshed = $state<RefreshResult|null>(null);
-  let modal = $state<'about'|'import'|'failures'|'delete'|'reset'|null>(null);
+  let modal = $state<'about'|'import'|'failures'|'delete'|'reset'|'layout'|null>(null);
+  let layoutChoice = $state<StorageLayout>('C');
+  let layoutProgress = $state<LayoutProgress|null>(null);
+  let layoutStarting = $state(false);
+  let layoutRevision = 0;
+  let layoutDirectory = $state('');
+  let layoutFiles = $state(0);
+  const layoutBusy = $derived(layoutStarting || !!layoutProgress?.running);
   let dialog = $state<HTMLDialogElement>();
   let returnFocus:HTMLElement|null = null;
   let selection = $state<LegacySelection|null>(null);
@@ -94,16 +102,16 @@
 
   const exportBusy = $derived(exportStarting || !!exportProgress?.running);
   const archiveBusy = $derived(archivePending || !!progress?.running);
-  const locked = $derived(!ready || archiveBusy || importBusy || exportBusy || !!busy || switching);
+  const locked = $derived(!ready || archiveBusy || importBusy || exportBusy || layoutBusy || !!busy || switching);
   const selected = $derived(accounts.find(a => a.screen_name.toLowerCase() === targetName(settings.target).toLowerCase()));
   const visibleProgress = $derived(progressForAccount(progress, selected));
   const exportSelection = $derived(overview || !selected ? 'all' : 'current');
-  const dataTaskReason = $derived(exportBusy ? '导出正在进行，归档、导入、删除与重置暂不可用' : archiveBusy ? '归档正在进行，导出、导入、删除与重置暂不可用' : importBusy ? '导入正在进行，归档、导出、删除与重置暂不可用' : busy ? `${busy}正在进行，请稍后操作` : '');
+  const dataTaskReason = $derived(layoutBusy ? '整理文件正在进行，归档、导入、导出与删除暂不可用' : exportBusy ? '导出正在进行，归档、导入、删除与重置暂不可用' : archiveBusy ? '归档正在进行，导出、导入、删除与重置暂不可用' : importBusy ? '导入正在进行，归档、导出、删除与重置暂不可用' : busy ? `${busy}正在进行，请稍后操作` : '');
   const exportOptionsError = $derived(!Object.values(exportTypes).some(Boolean) ? '至少选择一种导出媒体类型' : exportDateStart&&exportDateEnd&&exportDateStart>exportDateEnd ? '起始日期不能晚于结束日期' : '');
-  const exportDisabledReason = $derived(!native ? '请在桌面应用中导出' : !ready ? '正在读取程序状态' : !listenersReady ? '无法监听任务进度，请重新启动应用' : !storage?.initialized ? '请先创建数据目录' : login?.pending ? '请先完成登录' : archiveBusy||importBusy||!!busy ? dataTaskReason : switching ? '正在切换账号' : exportSelection==='current'&&!selected?.user_id ? '请选择已归档的账号' : exportSelection==='all'&&!accounts.some(a=>a.user_id) ? '尚无已归档账号' : exportOptionsError || (!exportDirectory ? '请先选择输出目录' : ''));
+  const exportDisabledReason = $derived(!native ? '请在桌面应用中导出' : !ready ? '正在读取程序状态' : !listenersReady ? '无法监听任务进度，请重新启动应用' : !storage?.initialized ? '请先创建数据目录' : login?.pending ? '请先完成登录' : archiveBusy||importBusy||layoutBusy||!!busy ? dataTaskReason : switching ? '正在切换账号' : exportSelection==='current'&&!selected?.user_id ? '请选择已归档的账号' : exportSelection==='all'&&!accounts.some(a=>a.user_id) ? '尚无已归档账号' : exportOptionsError || (!exportDirectory ? '请先选择输出目录' : ''));
   const mediaCount = $derived(Object.values(settings.media_types??{}).filter(Boolean).length);
   const optionsError = $derived(settings.date_start && settings.date_end && settings.date_start>settings.date_end ? '起始日期不能晚于结束日期' : mediaCount===0&&!settings.include_timeline ? '至少选择一种内容' : '');
-  const disabledReason = $derived(!native ? '请在桌面应用中归档' : !ready ? '正在读取程序状态' : !listenersReady ? '无法监听任务进度，请重新启动应用' : !storage?.initialized ? '请先创建数据目录' : exportBusy ? dataTaskReason : login?.pending ? '请先完成登录' : !login?.saved ? '请先在概览页登录 X' : !settings.target.trim() ? '请添加并选择账号' : optionsError || (busy || importBusy || switching ? '其他操作正在进行' : ''));
+  const disabledReason = $derived(!native ? '请在桌面应用中归档' : !ready ? '正在读取程序状态' : !listenersReady ? '无法监听任务进度，请重新启动应用' : !storage?.initialized ? '请先创建数据目录' : exportBusy||layoutBusy ? dataTaskReason : login?.pending ? '请先完成登录' : !login?.saved ? '请先在概览页登录 X' : !settings.target.trim() ? '请添加并选择账号' : optionsError || (busy || importBusy || switching ? '其他操作正在进行' : ''));
   const baselineWarning = $derived(selected?.full_settings ? !sameArchiveOptions(settings,selected.full_settings) : !!selected?.full_scope && selected.full_scope!==scopeKey(settings));
   const runningHere = $derived(archiveBusy && progress?.target?.screen_name.toLowerCase()===selected?.screen_name.toLowerCase());
   const runningElsewhere = $derived(archiveBusy&&!runningHere);
@@ -222,7 +230,7 @@
   async function confirmDelete() {if(!deletion)return;const d=deletion;await perform('删除数据',async()=>{await settingsQueue;const result=await deleteAccountData(d.account,d.scope,disableType,confirmation,d.preview.token);closeModal();await refreshData();if(d.scope==='all'){settings=defaultArchiveSettings();overview=true;savedSnapshot='';rememberSelection('__overview__');if(accounts[0])await selectAccount(accounts[0].screen_name);accountData=selected?await readAccountData(selected.screen_name):[];}else{const next=await readAccountSettings(d.account);settings={...next,media_types:next.media_types??{image:true,video:true,gif:true}};savedSnapshot=JSON.stringify($state.snapshot(settings));}deleteResult=result;notice=result.orphaned_files.length?'索引已删除，部分文件未能删除，详情见下方。':'删除完成，索引备份已保存。';});}
   async function checkIntegrity() {if(!selected)return;const account=selected.screen_name;await perform('校验完整性',async()=>{integrity=await inspectAccount(account);});}
   async function confirmReset() {if(!selected)return;const account=selected.screen_name;await perform('重置进度',async()=>{await resetAccountProgress(account);closeModal();await refreshData();notice='全量检查点与完成标记已清除，下次从首页开始。';});}
-  async function showMedia() {await perform('打开媒体位置',async()=>{await openMediaDirectory();});}
+  async function showMedia(account:string|null=selected?.screen_name??null) {await perform('打开媒体位置',async()=>{await openMediaDirectory(account);});}
   async function refreshLogin() {login=await readLoginStatus();proxy=login.proxy;await refreshRoute();}
   async function refreshRoute() {try {route=await readNetworkRoute();networkError='';}catch(e){networkError=message(e,'无法读取网络设置');route='系统代理';}}
   async function perform(name:string,action:()=>Promise<void>) {busy=name;error='';notice='';try{await action();}catch(e){error=message(e,`${name}未完成，请重试`);}finally{busy='';}}
@@ -240,7 +248,7 @@
   async function probeInterface() {await perform('接口探测',async()=>{probe=await probePlatform(settings.target);});}
   async function refreshParams() {await perform('刷新接口',async()=>{refreshed=await refreshPlatformParams();});}
   async function createStorage() {await perform('创建目录',async()=>{storage=await initializeStorage();await refreshData();await refreshLogin();notice='数据目录已创建，下一步登录 X。';});}
-  async function changeDirectory() {await perform('切换目录',async()=>{await settingsQueue;if(selected)await queueSettings($state.snapshot(settings));const s=await chooseDataDirectory();if(s){storage=s;overview=true;settings=defaultArchiveSettings();accountData=[];savedSnapshot='';integrity=null;deleteResult=null;progress=null;diagnostic=null;refreshed=null;probe=null;rememberSelection('__overview__');if(s.initialized)await initializeStorage();accounts=await listArchivedAccounts();const saved=await readArchiveSettings();const initial=accounts.find(a=>a.screen_name.toLowerCase()===targetName(saved.target).toLowerCase())??accounts[0];if(initial)await selectAccount(initial.screen_name);await refreshLogin();await refreshData();}});}
+  async function changeDirectory() {await perform('切换目录',async()=>{await settingsQueue;if(selected)await queueSettings($state.snapshot(settings));const s=await chooseDataDirectory();if(s){storage=s;layoutChoice=s.layout;layoutProgress=null;overview=true;settings=defaultArchiveSettings();accountData=[];savedSnapshot='';integrity=null;deleteResult=null;progress=null;diagnostic=null;refreshed=null;probe=null;rememberSelection('__overview__');if(s.initialized)await initializeStorage();accounts=await listArchivedAccounts();const saved=await readArchiveSettings();const initial=accounts.find(a=>a.screen_name.toLowerCase()===targetName(saved.target).toLowerCase())??accounts[0];if(initial)await selectAccount(initial.screen_name);await refreshLogin();await refreshData();}});}
   async function startArchive(mode:'full'|'incremental'|'retry') {
     if(!selected||archiveBusy||disabledReason||!ready||!listenersReady)return;
     const snapshot=$state.snapshot(settings),account=selected;
@@ -288,6 +296,28 @@
     finally{exportStarting=false;}
   }
   async function requestExportStop() {try{await stopExport();exportNotice='正在停止，等待当前文件与索引保存';}catch(e){exportError=message(e,'停止请求未送达');}}
+  async function confirmLayout() {
+    if(locked||!listenersReady||!storage?.initialized)return;
+    await perform('读取整理信息',async()=>{
+      await settingsQueue;storage=await readStorageStatus();
+      if(!storage?.initialized)throw '数据目录尚未创建';
+      layoutDirectory=storage.path;layoutFiles=storage.media;openModal('layout');
+    });
+  }
+  async function beginLayout() {
+    if(locked||!layoutDirectory)return;
+    await closeModal();layoutStarting=true;error='';
+    try {
+      const revision=layoutRevision;
+      const result=await organizeMedia(layoutChoice,layoutDirectory);
+      if(layoutRevision===revision)layoutProgress=result;
+      const statusRevision=layoutRevision;const status=await readLayoutStatus();
+      if(layoutRevision===statusRevision)layoutProgress=status;
+      await refreshData();layoutChoice=storage?.layout??'C';
+    }catch(e){error=message(e,'整理未完成，请重新整理文件');}
+    finally{layoutStarting=false;}
+  }
+  async function requestLayoutStop() {try{await stopLayout();notice='正在停止，等待当前文件与索引保存';}catch(e){error=message(e,'停止请求未送达');}}
   async function showExportDirectory(directory:string) {exportError='';try{await openExportDirectory(directory);}catch(e){exportError=message(e,'无法打开导出目录');}}
 
   $effect(()=>{applyTheme(theme);writeTheme(theme);const media=window.matchMedia('(prefers-color-scheme: dark)');const update=()=>applyTheme(theme);media.addEventListener('change',update);return()=>media.removeEventListener('change',update);});
@@ -307,18 +337,20 @@
   });
   $effect(()=>{const count=visibleProgress?.logs.length;const last=visibleProgress?.logs.at(-1);if(logsOpen&&!logPaused&&count&&last){void tick().then(()=>{if(logElement)logElement.scrollTop=logElement.scrollHeight;});}});
   onMount(()=>{
-    let active=true;let unlisten:UnlistenFn|undefined;let unlistenExport:UnlistenFn|undefined;const timer=setInterval(()=>now=Date.now(),1000);
+    let active=true;let unlisten:UnlistenFn|undefined;let unlistenExport:UnlistenFn|undefined;let unlistenLayout:UnlistenFn|undefined;const timer=setInterval(()=>now=Date.now(),1000);
     void (async()=>{try {
       programInfo=await readProgramInfo();native=!!programInfo;if(!native){ready=true;return;}
       const stop=await listen<ArchiveProgress>('archive-progress',e=>{if(active){archiveRevision++;progress=e.payload;if(e.payload.running)archivePreparing=false;}});if(active)unlisten=stop;else {stop();return;}
       const stopExportListener=await listen<ExportProgress>('export-progress',e=>{if(active){exportRevision++;exportProgress=e.payload;if(!e.payload.running)exportNotice='';}});if(active)unlistenExport=stopExportListener;else {stopExportListener();return;}
+      const stopLayoutListener=await listen<LayoutProgress>('layout-progress',e=>{if(active){layoutRevision++;layoutProgress=e.payload;}});if(active)unlistenLayout=stopLayoutListener;else {stopLayoutListener();return;}
+      const layoutStatusRevision=layoutRevision;const layoutStatus=await readLayoutStatus();if(active&&layoutRevision===layoutStatusRevision&&layoutStatus.stage)layoutProgress=layoutStatus;
       listenersReady=true;
       const archiveStatusRevision=archiveRevision;
       const p=await readArchiveStatus();if(active&&archiveRevision===archiveStatusRevision&&p.stage)progress=p;
       const revision=exportRevision;
       const exportStatus=await readExportStatus();if(active&&exportRevision===revision&&exportStatus.stage)exportProgress=exportStatus;
       const saved=await readArchiveSettings();if(!active)return;settings={...saved,target:saved.target||recalled('xarchive-target')||'',media_types:saved.media_types??{image:true,video:true,gif:true}};
-      storage=await readStorageStatus();if(storage?.initialized)await initializeStorage();
+      storage=await readStorageStatus();layoutChoice=storage?.layout??'C';if(storage?.initialized)await initializeStorage();
       accounts=await listArchivedAccounts();
       const remembered=recalled('xarchive-selected-account')||saved.target;
       const initial=accounts.find(a=>a.screen_name.toLowerCase()===targetName(remembered).toLowerCase())??accounts.find(a=>a.screen_name.toLowerCase()===targetName(saved.target).toLowerCase())??accounts[0];
@@ -327,7 +359,7 @@
       await refreshData();await refreshLogin();
       const output=await readExportDirectory();if(active)exportDirectory=output;
     }catch(e){error=message(e,'无法读取程序状态');}finally{if(active)ready=true;}})();
-    return()=>{active=false;unlisten?.();unlistenExport?.();clearInterval(timer);clearTimeout(highlightTimer);};
+    return()=>{active=false;unlisten?.();unlistenExport?.();unlistenLayout?.();clearInterval(timer);clearTimeout(highlightTimer);};
   });
 </script>
 
@@ -439,7 +471,7 @@
               <button disabled={!native||locked||switching||selected.pending===0} onclick={()=>startArchive('retry')}>重试失败项 <span class="muted">{selected.pending}</span></button>
               <button disabled={!native||locked||switching} onclick={checkIntegrity}>{busy==='校验完整性'?'正在检查…':'校验完整性'}</button>
               <button disabled={!native||locked||switching} onclick={()=>openModal('reset')}>重置全量进度</button>
-              <button disabled={!native||!!busy} onclick={showMedia}>打开媒体位置</button>
+              <button disabled={!native||!!busy} onclick={()=>showMedia()}>打开媒体位置</button>
             </div><p class="help">重试只处理待重试项，不扫描时间线；校验只报告本账号相关文件缺失或变化。</p></div>
             {#if integrity}<div class="integrity-report" role="status"><p>校验完成 · 缺失 {integrity.missing_files.length} · 变化 {integrity.changed_files.length}</p>{#each integrity.missing_files as path}<p class="path-label">缺失：{path}</p>{/each}{#each integrity.changed_files as path}<p class="path-label">变化：{path}</p>{/each}<p class="help">未修复或删除任何文件。</p></div>{/if}
             {#if deleteResult}<div class="delete-report" role="status"><p>已删除 {deleteResult.deleted.sources} 条来源、{deleteResult.deleted.tweet_metadata} 条推文元数据、{deleteResult.deleted.files} 个文件；保留 {deleteResult.deleted.retained_files} 个仍有引用的文件。</p><p class="path-label">索引备份：{deleteResult.backup}</p>{#if deleteResult.orphaned_files.length}<p class="inline-warning">索引已删除，以下文件删除失败，作为孤立文件保留：</p>{#each deleteResult.orphaned_files as path}<p class="path-label">{path}</p>{/each}{/if}</div>{/if}
@@ -455,8 +487,17 @@
             <div class="card-content"><label for="data-directory">数据目录</label><input id="data-directory" readonly value={storage?.path??'正在读取…'} title={storage?.path??''}/>
             <p class="help">状态：{storage?.initialized?'数据目录已就绪':'尚未创建数据目录'}</p>
             {#if !storage?.initialized}<p class="help">将在上方位置创建本机归档数据。创建后再登录 X。</p><button class="create-directory" disabled={!native||!ready||locked} onclick={createStorage}>{busy==='创建目录'?'正在创建…':'创建数据目录'}</button>{/if}
-            <div class="actions"><button disabled={!native||!ready||locked||login?.pending} onclick={changeDirectory}>切换目录</button><button disabled={!native||!storage?.initialized||archiveBusy||exportBusy||!!busy||login?.pending} onclick={()=>openModal('import')}>{importBusy?'查看导入进度':'导入旧库'}</button></div>
+            <div class="actions"><button disabled={!native||!ready||locked||login?.pending} onclick={changeDirectory}>切换目录</button><button disabled={!native||!storage?.initialized||archiveBusy||exportBusy||layoutBusy||!!busy||login?.pending} onclick={()=>openModal('import')}>{importBusy?'查看导入进度':'导入旧库'}</button></div>
             <p class="help">切换目录不会搬移已有数据。</p>
+            <p class="help">当前结构：{(storage?.layout??'C')==='C'?'C · 按账号再分类型':'A · 按账号与月份'}</p>
+            <label for="storage-layout">存储结构</label><select id="storage-layout" bind:value={layoutChoice} disabled={!native||locked||!storage?.initialized||login?.pending}>
+              <option value="C">C · 按账号再分类型（默认）</option><option value="A">A · 按账号与月份</option>
+            </select>
+            <p class="path-label">C：media/@账号/图片|视频|GIF/2026-10-15_推文ID_1.jpg</p>
+            <p class="path-label">A：media/@账号/2026-10/2026-10-15_推文ID_1.jpg</p>
+            <div class="actions"><button disabled={!native||locked||!listenersReady||!storage?.initialized||login?.pending} onclick={confirmLayout}>{layoutChoice===storage?.layout?'整理文件':'应用存储结构'}</button><button disabled={!native||!storage?.initialized||layoutBusy||!!busy} onclick={()=>showMedia(null)}>打开媒体文件夹</button></div>
+            {#if layoutBusy}<button onclick={requestLayoutStop}>停止整理</button>{/if}
+            {#if layoutProgress}<p class="help" role="status">{layoutProgress.stage} · {layoutProgress.done} / {layoutProgress.total} · 已改名 {layoutProgress.renamed} 个</p><progress aria-label="整理文件进度" value={layoutProgress.done} max={layoutProgress.total||1}></progress>{#if layoutProgress.running}<p class="path-label">{layoutProgress.current}</p>{/if}{#if layoutProgress.backup}<p class="path-label">索引备份：{layoutProgress.backup}</p>{/if}{#if layoutProgress.stopped}<p class="help">已完成的改名保留。再次整理可继续统一存储结构。</p>{/if}{#if layoutProgress.error}<p class="inline-warning" role="alert">{layoutProgress.error}</p>{/if}{/if}
             <div class="data-stats"><div><span>推文</span><strong>{storage?.tweets??'—'}</strong></div><div><span>唯一媒体</span><strong>{storage?.media??'—'}</strong></div><div><span>来源</span><strong>{storage?.sources??'—'}</strong></div><div><span>待重试</span><strong>{storage?.pending??'—'}</strong></div></div>
             <p class="help">媒体与索引占用 {bytes(storage?.bytes??0)}。备份时保留整个数据目录。</p>
             {#if dataTaskReason}<p class="inline-warning">{dataTaskReason}</p>{/if}
@@ -529,8 +570,8 @@
   </div>
 </main>
 
-<dialog bind:this={dialog} oncancel={(e)=>{e.preventDefault();void closeModal();}} onclose={()=>{if(modal)void closeModal();}} aria-label={modal==='about'?'关于 XArchive':modal==='import'?'导入旧库':modal==='delete'?'删除账号数据':modal==='reset'?'重置全量进度':'失败与待重试清单'}>
-  <div class="dialog-heading"><h2>{modal==='about'?'关于 XArchive':modal==='import'?'导入旧版数据':modal==='delete'?'删除账号数据':modal==='reset'?'重置全量进度':'失败与待重试'}</h2><button class="icon-button" onclick={closeModal} aria-label="关闭对话框">×</button></div>
+<dialog bind:this={dialog} oncancel={(e)=>{e.preventDefault();void closeModal();}} onclose={()=>{if(modal)void closeModal();}} aria-label={modal==='layout'?'存储结构':modal==='about'?'关于 XArchive':modal==='import'?'导入旧库':modal==='delete'?'删除账号数据':modal==='reset'?'重置全量进度':'失败与待重试清单'}>
+  <div class="dialog-heading"><h2>{modal==='layout'?'确认整理媒体文件':modal==='about'?'关于 XArchive':modal==='import'?'导入旧版数据':modal==='delete'?'删除账号数据':modal==='reset'?'重置全量进度':'失败与待重试'}</h2><button class="icon-button" onclick={closeModal} aria-label="关闭对话框">×</button></div>
   <div class="dialog-content">
     {#if modal==='about'}
       <h3>{programInfo?.name??'XArchive'} <span class="muted">{programInfo?`v${programInfo.version}`:'网页预览'}</span></h3>
@@ -551,6 +592,10 @@
       {#if licenseLoading}<p class="help" role="status">正在读取许可声明…</p>{/if}
       {#if licenseError}<p class="inline-warning" role="alert">{licenseError}</p><button disabled={licenseLoading} onclick={()=>loadLicense(licenses?.section??0)}>重试</button>{/if}
       {#if !native}<p class="help">请在桌面应用中查看内嵌许可声明。</p>{/if}
+    {:else if modal==='layout'}
+      <p class="help">将按{layoutChoice==='C'?'C · 按账号再分类型':'A · 按账号与月份'}整理：将在本磁盘批量改名，不复制文件，约 {layoutFiles} 个文件。</p>
+      <p class="path-label">数据目录：{layoutDirectory}</p><p class="help">执行前在线备份索引。只处理已登记媒体；账号名使用当前名称。可停止，已完成的改名保留，再次整理可继续。</p>
+      <div class="actions"><button disabled={locked} onclick={beginLayout}>确认整理</button><button onclick={closeModal}>取消</button></div>
     {:else if modal==='delete'&&deletion}
       <p class="help">@{deletion.account} · {scopeLabel(deletion.scope)}。执行前会在线备份索引；删除后不自动恢复文件。</p>
       <dl class="delete-preview"><div><dt>删除来源记录</dt><dd>{deletion.preview.sources}</dd></div><div><dt>删除推文元数据</dt><dd>{deletion.preview.tweet_metadata}</dd></div><div><dt>解除本账号推文关联</dt><dd>{deletion.preview.tweet_links}</dd></div><div><dt>删除文件</dt><dd>{deletion.preview.files} 个 · {bytes(deletion.preview.bytes)}</dd></div><div><dt>其他来源仍引用，保留文件</dt><dd>{deletion.preview.retained_files} 个</dd></div></dl>

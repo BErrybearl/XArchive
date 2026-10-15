@@ -147,6 +147,17 @@ pub(super) fn account_folder(store: &Store, account: &str, _screen: &str) -> Res
     Err(invalid("导出账号缺失"))
 }
 pub(super) fn extension(entity: &Entity) -> String {
+    // Storage filenames already reflect content detection. Keep that extension
+    // when copying, including media whose server MIME disagrees with its bytes.
+    if let Some((_, ext)) = entity.stored_path.rsplit_once('.') {
+        if ext != "bin"
+            && !ext.is_empty()
+            && ext.len() <= 10
+            && ext.bytes().all(|c| c.is_ascii_alphanumeric())
+        {
+            return ext.to_ascii_lowercase();
+        }
+    }
     let ext = match entity.mime.as_str() {
         "image/jpeg" => "jpg",
         "image/png" => "png",

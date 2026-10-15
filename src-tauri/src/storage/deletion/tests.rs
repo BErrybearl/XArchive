@@ -21,6 +21,7 @@ fn user(id: &str) -> User<'_> {
 fn media(s: &mut Store, account: &str, tweet: &str, kind: &str) -> i64 {
     s.save_media(
         &MediaSource {
+            sequence: None,
             target: user(account),
             author: user("author"),
             tweet_id: tweet,

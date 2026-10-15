@@ -1,7 +1,9 @@
 mod accounts;
 mod deletion;
+pub(crate) mod layout;
 pub use accounts::*;
 pub use deletion::*;
+pub use layout::{Layout, LayoutProgress};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -16,7 +18,7 @@ use tempfile::NamedTempFile;
 
 const DATABASE: &str = "archive.sqlite3";
 const APPLICATION_ID: i64 = 1_480_675_907;
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 const BUFFER_SIZE: usize = 64 * 1024;
 
 #[derive(Debug)]
@@ -51,6 +53,7 @@ pub type Result<T> = std::result::Result<T, StorageError>;
 
 #[derive(Debug, Serialize)]
 pub struct StorageStatus {
+    pub layout: Layout,
     pub path: String,
     pub initialized: bool,
     pub development: bool,
@@ -76,6 +79,7 @@ pub struct User<'a> {
 }
 
 pub struct MediaSource<'a> {
+    pub sequence: Option<u64>,
     pub target: User<'a>,
     pub author: User<'a>,
     pub tweet_id: &'a str,
@@ -203,6 +207,7 @@ pub fn status(root: &Path) -> Result<StorageStatus> {
     let database = root.join(DATABASE);
     check_path(&database)?;
     let mut info = StorageStatus {
+        layout: Layout::C,
         path: friendly_path(root).to_string_lossy().into_owned(),
         initialized: database.exists(),
         development: cfg!(debug_assertions),
@@ -215,6 +220,7 @@ pub fn status(root: &Path) -> Result<StorageStatus> {
     if info.initialized {
         let connection = Connection::open_with_flags(&database, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         validate_database(&connection)?;
+        info.layout = layout::current_layout(&connection)?;
         info.tweets = count(&connection, "SELECT count(*) FROM tweets")?;
         info.bytes = count(
             &connection,
@@ -316,6 +322,7 @@ impl Store {
                 (2, include_str!("runs-schema.sql")),
                 (3, include_str!("workspace-schema.sql")),
                 (4, include_str!("../export/schema.sql")),
+                (5, include_str!("layout-schema.sql")),
             ] {
                 if original_version <= version {
                     let body = schema
@@ -326,9 +333,12 @@ impl Store {
                     transaction.execute_batch(body)?;
                 }
             }
+            layout::migrate_sequences(&transaction)?;
             transaction.commit()?;
         }
-        Ok(Self { root, connection })
+        let mut store = Self { root, connection };
+        store.recover_renames()?;
+        Ok(store)
     }
 
     /// Stage and hash a stream without loading a whole video into memory.
@@ -338,6 +348,7 @@ impl Store {
         mut input: impl Read,
     ) -> Result<SaveResult> {
         validate_source(source)?;
+        self.recover_renames()?;
         check_path(&self.root.join("temporary"))?;
         let mut staged = NamedTempFile::new_in(self.root.join("temporary"))?;
         let mut hash = Sha256::new();
@@ -446,13 +457,31 @@ impl Store {
             entity_id
         } else {
             check_path(&self.root.join("media"))?;
-            let name = staged
-                .path()
-                .file_name()
-                .ok_or_else(|| invalid("无法确定媒体文件名"))?
-                .to_string_lossy();
-            let relative_path = format!("media/{}-{name}.bin", &digest[..16]);
+            let ext = layout::detect_ext(staged.path(), source.original_url, source.mime_type)?;
+            let sequence = layout::source_sequence(&transaction, source)?;
+            let relative_path = layout::available_path(
+                &self.root,
+                &transaction,
+                &layout::build_path(
+                    &self.root,
+                    &transaction,
+                    layout::current_layout(&transaction)?,
+                    source.target.screen_name,
+                    source.published_at,
+                    source.tweet_id,
+                    sequence,
+                    source.media_type,
+                    &ext,
+                )?,
+                None,
+            )?;
             let destination = media_path(&self.root, &relative_path)?;
+            fs::create_dir_all(
+                destination
+                    .parent()
+                    .ok_or_else(|| invalid("媒体目录无效"))?,
+            )?;
+            check_path(&destination)?;
             let saved = staged
                 .persist_noclobber(&destination)
                 .map_err(|error| StorageError::Io(error.error))?;
@@ -463,22 +492,22 @@ impl Store {
                 // Same recorded digest and length: repair the entity's location so
                 // every existing source remains attached, including other accounts.
                 transaction.execute(
-                    "UPDATE media_entities SET relative_path=?2 WHERE entity_id=?1",
-                    params![entity_id, relative_path],
+                    "UPDATE media_entities SET relative_path=?2,kind=?3,ext=?4,naming_account=?5 WHERE entity_id=?1",
+                    params![entity_id, relative_path, source.media_type, ext, source.target.screen_name],
                 )?;
                 entity_id
             } else {
                 transaction.execute(
-                "INSERT INTO media_entities(target_user_id, sha256, byte_length, relative_path, mime_type)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![source.target.id, digest, stored_length, relative_path, source.mime_type],
+                "INSERT INTO media_entities(target_user_id, sha256, byte_length, relative_path, mime_type,kind,ext,naming_account)
+                 VALUES (?1, ?2, ?3, ?4, ?5,?6,?7,?8)",
+                params![source.target.id, digest, stored_length, relative_path, source.mime_type,source.media_type,ext,source.target.screen_name],
             )?;
                 transaction.last_insert_rowid()
             }
         };
         transaction.execute(
             "INSERT INTO media_sources(target_user_id, tweet_id, media_key, entity_id,
-             original_filename, original_url, media_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             original_filename, original_url, media_type,sequence) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,?8)
              ON CONFLICT(target_user_id,tweet_id,media_key) DO UPDATE SET
              entity_id=excluded.entity_id, original_filename=excluded.original_filename,
              original_url=excluded.original_url, media_type=excluded.media_type",
@@ -489,10 +518,16 @@ impl Store {
                 entity_id,
                 source.original_filename,
                 source.original_url,
-                source.media_type
+                source.media_type,
+                i64::try_from(layout::source_sequence(&transaction, source)?).map_err(|_|invalid("媒体序号过大"))?
             ],
         )?;
         transaction.commit()?;
+        if reused || repair_candidate.is_some() {
+            // A later response can reveal an earlier source. Use the durable rename
+            // protocol while retaining the account name chosen at initial storage.
+            self.organize_entity(entity_id, false)?;
+        }
         Ok(SaveResult {
             entity_id,
             reused,
@@ -583,10 +618,7 @@ impl Store {
             tracked.insert(relative_path);
         }
         check_path(&self.root.join("media"))?;
-        for entry in fs::read_dir(self.root.join("media"))? {
-            let entry = entry?;
-            check_path(&entry.path())?;
-            let relative = format!("media/{}", entry.file_name().to_string_lossy());
+        for relative in layout::media_files(&self.root)? {
             if !tracked.contains(&relative) {
                 report.untracked_files.push(relative);
             }
@@ -714,6 +746,12 @@ fn validate_database(connection: &Connection) -> Result<()> {
 }
 
 fn validate_source(source: &MediaSource<'_>) -> Result<()> {
+    if source
+        .sequence
+        .is_some_and(|n| n == 0 || n > i64::MAX as u64)
+    {
+        return Err(invalid("媒体序号无效"));
+    }
     for field in [
         source.target.id,
         source.target.screen_name,
@@ -824,9 +862,20 @@ pub(crate) fn media_path(root: &Path, relative: &str) -> Result<PathBuf> {
     if relative.contains('\\')
         || relative.contains(':')
         || relative.contains("..")
-        || components.len() != 2
+        || components.len() < 2
         || components[0] != Component::Normal("media".as_ref())
-        || !matches!(components[1], Component::Normal(_))
+        || !components[1..]
+            .iter()
+            .all(|part| matches!(part, Component::Normal(_)))
+        || relative.split('/').any(|part| {
+            part.is_empty()
+                || part == "."
+                || part.ends_with(['.', ' '])
+                || part
+                    .chars()
+                    .any(|c| c.is_control() || "<>:\"|?*".contains(c))
+                || layout::reserved_name(part)
+        })
     {
         return Err(invalid("媒体索引包含越界路径，未读写该文件"));
     }

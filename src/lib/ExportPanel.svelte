@@ -57,6 +57,7 @@
             {#if !exportBusy&&exportDisabledReason}<p class="inline-warning">{exportDisabledReason}</p>{/if}
 {/snippet}
 <div class="export-panel">
+  <p class="help">可选：复制到其他位置或按条件挑选。媒体在本机数据目录中即可直接浏览。</p>
   {#if compact}
     {@render output()}
     <details class="export-options"><summary>导出高级选项 · {exportMode==='full'?'全量':'增量'} · {Object.values(exportTypes).filter(Boolean).length} 类媒体 · {exportDateStart||exportDateEnd ? `${exportDateStart||'不限'} 至 ${exportDateEnd||'不限'}` : '不限日期'}</summary>

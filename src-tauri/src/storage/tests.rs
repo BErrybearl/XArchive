@@ -52,8 +52,9 @@ fn junction_and_its_children_are_rejected_without_touching_target() {
     assert!(check_path(&target).is_ok());
 }
 
-fn sample<'a>(tweet_id: &'a str, author_id: &'a str) -> MediaSource<'a> {
+pub(super) fn sample<'a>(tweet_id: &'a str, author_id: &'a str) -> MediaSource<'a> {
     MediaSource {
+        sequence: None,
         target: User {
             id: "19000000000000000001",
             screen_name: "target",
@@ -75,20 +76,21 @@ fn sample<'a>(tweet_id: &'a str, author_id: &'a str) -> MediaSource<'a> {
     }
 }
 
-fn isolated_directory() -> tempfile::TempDir {
+pub(super) fn isolated_directory() -> tempfile::TempDir {
     let project = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let tests = project.join(".runtime").join("storage-tests");
     fs::create_dir_all(&tests).unwrap();
     tempfile::tempdir_in(tests).unwrap()
 }
 
-fn migration_fixture(root: &Path, version: i64) -> Connection {
+pub(super) fn migration_fixture(root: &Path, version: i64) -> Connection {
     let c = Connection::open(root.join(DATABASE)).unwrap();
     c.execute_batch(include_str!("schema.sql")).unwrap();
     for (from, schema) in [
         (1, include_str!("archive-schema.sql")),
         (2, include_str!("runs-schema.sql")),
         (3, include_str!("workspace-schema.sql")),
+        (4, include_str!("../export/schema.sql")),
     ] {
         if version > from {
             c.execute_batch(schema).unwrap();
@@ -104,7 +106,7 @@ fn migration_fixture(root: &Path, version: i64) -> Connection {
          VALUES(7,'keep','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',4,'media/kept.bin','image/jpeg');
          INSERT INTO media_sources VALUES(9,'keep','tweet','photo',7,'kept.jpg','https://example.invalid/kept','image');",
     ).unwrap();
-    if version == 4 {
+    if version >= 4 {
         c.execute_batch(
             "INSERT INTO account_profiles VALUES('kept','keep','{}');
             INSERT INTO workspace_state VALUES(1,'kept','{}');",
@@ -115,8 +117,8 @@ fn migration_fixture(root: &Path, version: i64) -> Connection {
 }
 
 #[test]
-fn migration_chain_v1_v2_v3_v4_to_v5_preserves_data_and_backs_up_once() {
-    for version in 1..=4 {
+fn migration_chain_v1_through_v5_to_v6_preserves_data_and_backs_up_once() {
+    for version in 1..=5 {
         let d = isolated_directory();
         let c = migration_fixture(d.path(), version);
         // Read-only paths leave the old index untouched.
@@ -133,7 +135,7 @@ fn migration_chain_v1_v2_v3_v4_to_v5_preserves_data_and_backs_up_once() {
             s.connection
                 .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            5
+            6
         );
         assert_eq!(s.connection.query_row("SELECT t.text FROM tweets t JOIN media_sources m USING(tweet_id) WHERE m.source_id=9 AND m.entity_id=7", [], |r| r.get::<_, String>(0)).unwrap(), "保留文本");
         assert_eq!(
@@ -162,7 +164,7 @@ fn migration_chain_v1_v2_v3_v4_to_v5_preserves_data_and_backs_up_once() {
             .unwrap(),
             0
         );
-        if version == 4 {
+        if version >= 4 {
             assert_eq!(
                 s.connection
                     .query_row("SELECT selected_account FROM workspace_state", [], |r| {
@@ -208,10 +210,13 @@ fn migration_chain_v1_v2_v3_v4_to_v5_preserves_data_and_backs_up_once() {
 
 #[test]
 fn migration_chain_failure_rolls_back_every_step_and_keeps_original_wal_backup() {
-    for version in 1..=4 {
-        // Fail at workspace (an intermediate step) and export (the last step).
-        for collision in ["account_profiles", "export_files"] {
-            if version == 4 && collision == "account_profiles" {
+    for version in 1..=5 {
+        // Fail at intermediate steps and at the v6 layout step, rolling back
+        // ALTER TABLE as well as all previous steps in the same transaction.
+        for collision in ["account_profiles", "export_files", "storage_layout"] {
+            if version >= 4 && collision == "account_profiles"
+                || version >= 5 && collision == "export_files"
+            {
                 continue;
             }
             let d = isolated_directory();
@@ -267,7 +272,7 @@ fn migration_chain_failure_rolls_back_every_step_and_keeps_original_wal_backup()
 }
 
 #[test]
-fn new_and_existing_empty_databases_get_complete_v5_without_backup() {
+fn new_and_existing_empty_databases_get_complete_v6_without_backup() {
     for existing in [false, true] {
         let d = isolated_directory();
         if existing {
@@ -278,7 +283,7 @@ fn new_and_existing_empty_databases_get_complete_v5_without_backup() {
             s.connection
                 .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            5
+            6
         );
         s.connection
             .prepare(
@@ -293,7 +298,7 @@ fn new_and_existing_empty_databases_get_complete_v5_without_backup() {
 fn unknown_or_future_database_versions_are_rejected_before_any_write() {
     for (application_id, version) in [
         (APPLICATION_ID, 0),
-        (APPLICATION_ID, 6),
+        (APPLICATION_ID, 7),
         (APPLICATION_ID, 99),
         (42, 3),
     ] {

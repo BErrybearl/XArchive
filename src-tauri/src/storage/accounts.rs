@@ -356,6 +356,9 @@ impl Store {
                 report.changed_files.push(relative);
             }
         }
+        // User-added files have no account identity; report them globally without
+        // hashing files belonging to other accounts.
+        report.untracked_files = self.untracked_media()?;
         Ok(report)
     }
     pub fn reset_account_progress(&self, account: &str) -> Result<()> {

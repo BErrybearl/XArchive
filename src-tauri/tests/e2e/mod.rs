@@ -138,9 +138,17 @@ impl Fixture {
             (tweets, files, files, pending)
         );
         assert_eq!(
-            fs::read_dir(self.root.join("media")).unwrap().count() as u64,
+            storage::layout::media_files(&self.root).unwrap().len() as u64,
             files
         );
+        for relative in storage::layout::media_files(&self.root).unwrap() {
+            assert_eq!(relative.split('/').count(), 4, "{relative}");
+            assert!(relative.starts_with("media/@fixture/"), "{relative}");
+            assert!(
+                relative.ends_with(".jpg") || relative.ends_with(".mp4"),
+                "{relative}"
+            );
+        }
         let report = self.store().inspect().unwrap();
         assert!(report.missing_files.is_empty(), "{report:?}");
         assert!(report.changed_files.is_empty(), "{report:?}");

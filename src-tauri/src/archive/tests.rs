@@ -896,6 +896,7 @@ fn prior_imported_filename_source_is_reused_without_new_source() {
     store
         .save_media(
             &MediaSource {
+                sequence: None,
                 target: user(&a),
                 author: user(&a),
                 tweet_id: "100",
@@ -973,7 +974,7 @@ fn v1_migration_preserves_data_and_takes_readable_backup_before_change() {
             .connection()
             .pragma_query_value(None, "user_version", |r| r.get::<_, i32>(0))
             .unwrap(),
-        5
+        6
     );
     let backups: Vec<_> = std::fs::read_dir(dir.path().join("temporary"))
         .unwrap()

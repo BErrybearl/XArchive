@@ -117,6 +117,16 @@ fn exact_sources_account_isolation_retry_and_repeat() {
     assert_eq!(report.counts.digests_checked, 4);
     assert_eq!(report.pending.len(), 1);
     assert_eq!(report.pending[0].items[0]["filename"], "retry.jpg");
+    let imported = Store::open_readonly(&root).unwrap();
+    assert_eq!(storage::status(&root).unwrap().layout, storage::Layout::C);
+    assert!(
+        storage::layout::media_files(&root)
+            .unwrap()
+            .iter()
+            .all(|path| path.split('/').count() == 4 && path.starts_with("media/@"))
+    );
+    assert!(imported.inspect().unwrap().untracked_files.is_empty());
+    drop(imported);
     assert!(Path::new(&report.snapshot).starts_with(root.join("temporary")));
     assert!(Path::new(&report.report_path).is_file());
     let db = Connection::open_with_flags(

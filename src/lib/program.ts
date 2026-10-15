@@ -17,6 +17,7 @@ export async function readLicenseNotices(section = 0): Promise<LicenseNotices> {
 }
 
 export interface StorageStatus {
+  layout: StorageLayout;
   path: string;
   initialized: boolean;
   development: boolean;
@@ -34,6 +35,15 @@ export async function readProgramInfo(): Promise<ProgramInfo | null> {
 
   return invoke<ProgramInfo>('get_program_info');
 }
+
+export type StorageLayout = 'A' | 'C';
+export interface LayoutProgress {
+  running:boolean; layout:StorageLayout; done:number; total:number; renamed:number;
+  stage:string; current:string; backup:string; stopped:boolean; error:string|null;
+}
+export function readLayoutStatus():Promise<LayoutProgress> {return invoke('get_layout_status');}
+export function organizeMedia(layout:StorageLayout,directory:string):Promise<LayoutProgress> {return invoke('organize_media',{layout,directory});}
+export function stopLayout():Promise<void> {return invoke('stop_layout');}
 
 export async function readStorageStatus(): Promise<StorageStatus | null> {
   return isTauri() ? invoke<StorageStatus>('get_storage_status') : null;
@@ -202,7 +212,7 @@ export function previewAccountDelete(account:string,scope:DeleteScope):Promise<D
 export function deleteAccountData(account:string,scope:DeleteScope,disableType:boolean,confirmation:string,previewToken:string):Promise<DeleteResult> {return invoke('delete_account_data',{account,scope,options:{disable_type:disableType,confirmation,preview_token:previewToken}});}
 export function inspectAccount(account:string):Promise<IntegrityReport> {return invoke('inspect_account',{account});}
 export function resetAccountProgress(account:string):Promise<void> {return invoke('reset_account_progress',{account});}
-export function openMediaDirectory():Promise<void> {return invoke('open_media_directory');}
+export function openMediaDirectory(account:string|null=null):Promise<void> {return invoke('open_media_directory',{account});}
 export interface ExportOptions {
  account:string|null;mode:'full'|'incremental';media_types:{image:boolean;video:boolean;gif:boolean};
  date_start:string|null;date_end:string|null;output_directory:string|null;

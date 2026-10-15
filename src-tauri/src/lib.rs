@@ -12,6 +12,7 @@ use tauri_plugin_dialog::DialogExt;
 mod archive;
 mod auth;
 mod export;
+mod layout_commands;
 mod legacy;
 mod licenses;
 mod platform;
@@ -316,9 +317,12 @@ async fn reset_account_progress(app: tauri::AppHandle, account: String) -> Resul
     with_account_store(app, move |s| s.reset_account_progress(&account)).await
 }
 #[tauri::command]
-fn open_media_directory() -> Result<(), String> {
+fn open_media_directory(account: Option<String>) -> Result<(), String> {
     let root = storage::configured_root().map_err(|e| e.to_string())?;
-    let path = root.join("media");
+    let store = storage::Store::open_readonly(&root).map_err(|e| e.to_string())?;
+    let path = store
+        .media_directory(account.as_deref())
+        .map_err(|e| e.to_string())?;
     storage::check_path(&path).map_err(|e| e.to_string())?;
     if !path.is_dir() {
         return Err("媒体目录尚未创建".into());
@@ -866,6 +870,9 @@ async fn import_legacy(
 
 pub fn run() {
     let commands: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+        layout_commands::get_layout_status,
+        layout_commands::organize_media,
+        layout_commands::stop_layout,
         export::commands::choose_export_directory,
         export::commands::get_export_directory,
         export::commands::open_export_directory,
@@ -909,6 +916,7 @@ pub fn run() {
     ];
     tauri::Builder::default()
         .manage(StorageAccess(Mutex::new(())))
+        .manage(layout_commands::LayoutAccess::default())
         .manage(ImportAccess::default())
         .manage(ArchiveAccess::default())
         .manage(export::ExportAccess::default())
@@ -917,6 +925,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if let Ok(root) = storage::configured_root() {
+                if root.join("archive.sqlite3").exists() {
+                    storage::Store::open(&root)?;
+                }
                 if let Ok(mut login) = app.state::<LoginAccess>().0.lock() {
                     login.retry_cleanup(&root);
                 }

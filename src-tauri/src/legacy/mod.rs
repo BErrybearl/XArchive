@@ -538,6 +538,7 @@ fn migrate(
                 .ok_or_else(|| invalid("推文作者在 users 中缺失"))?;
             let key = source.key();
             let metadata = MediaSource {
+                sequence: storage::layout::filename_sequence(&source.tweet, &source.filename),
                 target: target.user(),
                 author: author.user(),
                 tweet_id: &source.tweet,

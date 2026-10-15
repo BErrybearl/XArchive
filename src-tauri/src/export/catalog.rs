@@ -1,5 +1,5 @@
 use super::*;
-use rusqlite::Connection;
+use crate::storage::layout::timestamp;
 use std::collections::HashMap;
 
 pub(super) struct Entity {
@@ -30,7 +30,7 @@ pub(super) fn load_entities(store: &Store, account: &str) -> Result<Vec<Entity>>
         .map(|(i, e)| (e.id, i))
         .collect();
     let mut q=store.connection().prepare("SELECT s.entity_id,s.tweet_id,t.author_user_id,u.screen_name,t.published_at,t.text,s.original_filename,s.original_url,s.media_type,
-        row_number() OVER (PARTITION BY s.target_user_id,s.tweet_id ORDER BY s.source_id)
+        coalesce(nullif(s.sequence,0),row_number() OVER (PARTITION BY s.target_user_id,s.tweet_id ORDER BY s.source_id))
         FROM media_sources s JOIN tweets t ON t.tweet_id=s.tweet_id JOIN users u ON u.user_id=t.author_user_id
         WHERE s.target_user_id=?1 ORDER BY s.source_id")?;
     for row in q.query_map([account], |r| {
@@ -83,46 +83,6 @@ pub(super) fn load_entities(store: &Store, account: &str) -> Result<Vec<Entity>>
     }
     Ok(entities)
 }
-// ISO dates/timestamps (including timezone offsets) and the public Twitter format.
-fn timestamp(db: &Connection, raw: &str) -> Result<Option<i64>> {
-    if raw.len() >= 10 && raw.is_char_boundary(10) && archive::date_seconds(&raw[..10]).is_some() {
-        return Ok(
-            db.query_row("SELECT CAST(strftime('%s',?1) AS INTEGER)", [raw], |r| {
-                r.get(0)
-            })?,
-        );
-    }
-    let p: Vec<_> = raw.split_whitespace().collect();
-    if p.len() != 6 || p[4] != "+0000" {
-        return Ok(None);
-    }
-    let Some(month) = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ]
-    .iter()
-    .position(|m| *m == p[1]) else {
-        return Ok(None);
-    };
-    let Ok(day) = p[2].parse::<u32>() else {
-        return Ok(None);
-    };
-    let date = format!("{}-{:02}-{day:02}", p[5], month + 1);
-    let Some(midnight) = archive::date_seconds(&date) else {
-        return Ok(None);
-    };
-    let time: Vec<_> = p[3]
-        .split(':')
-        .map(str::parse::<u64>)
-        .collect::<std::result::Result<_, _>>()
-        .unwrap_or_default();
-    if time.len() != 3 || time[0] > 23 || time[1] > 59 || time[2] > 59 {
-        return Ok(None);
-    }
-    Ok(Some(
-        (midnight + time[0] * 3600 + time[1] * 60 + time[2]) as i64,
-    ))
-}
-
 pub(super) fn csv(entries: &[IndexEntry]) -> Result<Vec<u8>> {
     // One row per file. All sources are JSON in the final RFC 4180 quoted field.
     let mut output =

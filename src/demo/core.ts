@@ -13,6 +13,7 @@ const accounts: ArchivedAccount[] = [
 ].map(account => ({ ...account, pending: 0, failed: 0, last_full_at: verifiedAt,
   last_incremental_at: null, full_scope: null, full_settings: null, summary: '归档完成' }));
 const storage: StorageStatus = {
+  layout: 'C',
   path: 'D:\\XArchive\\data', initialized: true, development: false,
   tweets: 698, media: 1085, sources: 1124, pending: 0,
   bytes: accounts.reduce((sum, account) => sum + account.bytes, 0),
@@ -38,6 +39,7 @@ export async function invoke<T>(command: string, args?: Record<string, unknown>)
     case 'get_account_settings': result = { ...settings, target: args?.account ?? '' }; break;
     case 'get_account_data': result = []; break;
     case 'get_archive_status': case 'get_export_status': result = { running: false, stage: '' }; break;
+    case 'get_layout_status': result = { running: false, layout: 'C', stage: '' }; break;
     case 'get_export_directory': result = null; break;
     case 'save_archive_settings': result = undefined; break;
     default: throw new Error(`截图演示模式不支持操作：${command}`);

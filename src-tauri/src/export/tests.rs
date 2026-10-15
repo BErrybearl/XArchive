@@ -149,6 +149,7 @@ impl Fixture {
         let mut s = Store::open(&self.root).unwrap();
         s.save_media(
             &MediaSource {
+                sequence: None,
                 target: User {
                     id: account,
                     screen_name: screen,
@@ -237,6 +238,34 @@ fn shared_account_sources_and_unarchived_profiles_export_without_cross_account_l
         assert_eq!(
             fs::read(Path::new(&result.directory).join(&e.path)).unwrap(),
             b"shared"
+        );
+    }
+}
+
+#[test]
+fn exports_read_a_and_c_layouts_and_keep_detected_extension() {
+    let f = Fixture::new();
+    f.add(
+        "a",
+        "alpha",
+        "1",
+        Some("2026-01-01"),
+        "image",
+        b"\x89PNG\r\n\x1a\ncontent",
+    );
+    for layout in [storage::Layout::A, storage::Layout::C] {
+        let mut store = Store::open(&f.root).unwrap();
+        let result = store.organize_media(layout, &AtomicBool::new(false), |_| {});
+        assert!(result.error.is_none(), "{result:?}");
+        drop(store);
+        let p = f.run(&f.options(Mode::Full));
+        assert_eq!(p.outcome, "completed", "{p:?}");
+        assert_eq!(p.copied, 1);
+        let entries = f.index(&p);
+        assert!(entries[0].path.ends_with(".png"));
+        assert_eq!(
+            fs::read(f.file(&p, &entries[0])).unwrap(),
+            b"\x89PNG\r\n\x1a\ncontent"
         );
     }
 }
@@ -930,7 +959,7 @@ fn schema_v4_migration_backs_up_and_rolls_back_failed_step() {
         s.connection()
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        5
+        6
     );
     assert_eq!(
         s.connection()

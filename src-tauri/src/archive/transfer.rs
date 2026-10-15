@@ -70,6 +70,10 @@ fn commit(
                 .map_err(|_| PlatformError::local())?
                 .len();
             let source = MediaSource {
+                sequence: storage::layout::filename_sequence(
+                    &item.tweet.id,
+                    &item.media.legacy_filename,
+                ),
                 target: user(target),
                 author: user(&item.tweet.author),
                 tweet_id: &item.tweet.id,
