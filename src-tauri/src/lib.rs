@@ -17,6 +17,8 @@ mod legacy;
 mod licenses;
 mod platform;
 pub mod storage;
+#[cfg(all(test, windows))]
+mod test_support;
 
 struct StorageAccess(Mutex<()>);
 impl StorageAccess {

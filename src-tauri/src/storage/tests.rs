@@ -33,17 +33,7 @@ fn junction_and_its_children_are_rejected_without_touching_target() {
     let junction = dir.path().join("junction");
     fs::create_dir(&target).unwrap();
     fs::write(target.join("kept"), b"keep").unwrap();
-    let output = std::process::Command::new("cmd.exe")
-        .args(["/c", "mklink", "/J"])
-        .arg(&junction)
-        .arg(&target)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    crate::test_support::junction(&junction, &target).unwrap();
     assert_eq!(reparse_tag(&junction).unwrap(), 0xa000_0003);
     let refused = check_path(&junction).is_err() && check_path(&junction.join("kept")).is_err();
     fs::remove_dir(&junction).unwrap();

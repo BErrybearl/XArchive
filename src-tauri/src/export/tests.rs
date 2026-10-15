@@ -1008,23 +1008,9 @@ fn shared_storage_lock_excludes_export_archive_import_and_delete() {
 #[cfg(windows)]
 #[test]
 fn windows_junction_output_and_media_paths_are_rejected() {
-    use std::{os::windows::process::CommandExt, process::Command};
     let f = Fixture::new();
     let junction = f.output.join("junction");
-    // Fixed synthetic fixture paths only; no delete/move commands are composed across shells.
-    let status = Command::new("cmd")
-        .args(["/C", "mklink", "/J"])
-        .arg(&junction)
-        .arg(&f.root)
-        .creation_flags(0x08000000)
-        .output()
-        .unwrap();
-    assert!(
-        status.status.success(),
-        "junction fixture: {} {}",
-        String::from_utf8_lossy(&status.stdout),
-        String::from_utf8_lossy(&status.stderr)
-    );
+    crate::test_support::junction(&junction, &f.root).unwrap();
     assert!(validate_output(&f.root, &junction).is_err());
     assert!(validate_directory(&f.root, &junction.join("nested")).is_err());
     assert!(export_path(&junction, "media/file.jpg").is_err());

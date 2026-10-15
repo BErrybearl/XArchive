@@ -1,13 +1,19 @@
 use super::{AuthError, Credentials, Result, capture_cookies, cdp, check};
+#[cfg(not(windows))]
+use std::process::Child;
+#[cfg(any(not(windows), test))]
+use std::process::{Command, Stdio};
 use std::{
     ffi::OsString,
     fs::{self, OpenOptions},
-    io::Read,
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
+
+#[cfg(windows)]
+#[path = "browser_job.rs"]
+mod job;
 
 pub(super) trait LoginBrowser: Send {
     fn in_use(&mut self, profile: &Path) -> Result<bool>;
@@ -50,6 +56,7 @@ fn profile_arg(profile: &Path) -> OsString {
     arg.push(profile.as_os_str());
     arg
 }
+#[cfg(any(not(windows), test))]
 fn command(executable: &Path) -> Command {
     let mut command = Command::new(executable);
     command
@@ -83,11 +90,18 @@ fn find_browser() -> Result<PathBuf> {
 
 pub(super) struct Browser {
     executable: PathBuf,
+    #[cfg(windows)]
+    interactive: job::Process,
+    #[cfg(not(windows))]
     interactive: Child,
 }
 impl Browser {
     pub(super) fn open(profile: &Path, proxy: &str) -> Result<Self> {
         let executable = find_browser()?;
+        #[cfg(windows)]
+        let interactive = job::Process::start(&executable, &login_args(profile, proxy))
+            .map_err(|_| AuthError::BrowserStart)?;
+        #[cfg(not(windows))]
         let interactive = command(&executable)
             .args(login_args(profile, proxy))
             .spawn()
@@ -100,15 +114,15 @@ impl Browser {
 }
 impl LoginBrowser for Browser {
     fn in_use(&mut self, profile: &Path) -> Result<bool> {
-        // Launchers can hand ownership to another browser process, so also check
-        // profile-specific processes and exclusive access to Chromium lock/data files.
-        occupied(
-            self.interactive
-                .try_wait()
-                .map(|status| status.is_none())
-                .map_err(|_| AuthError::BrowserConnection),
-            || profile_in_use(profile),
-        )
+        // The Job includes descendants even after the launcher exits. If Chromium
+        // hands the window to an existing instance, exclusive profile locks cover it.
+        #[cfg(windows)]
+        let running = self.interactive.running();
+        #[cfg(not(windows))]
+        let running = self.interactive.try_wait().map(|status| status.is_none());
+        occupied(running.map_err(|_| AuthError::BrowserConnection), || {
+            profile_in_use(profile)
+        })
     }
     fn read(&mut self, profile: &Path) -> Result<Credentials> {
         if self.in_use(profile)? {
@@ -134,10 +148,7 @@ pub(super) fn occupied(
 }
 pub(super) fn profile_in_use(profile: &Path) -> Result<bool> {
     check(profile)?;
-    if locks_in_use(profile)? {
-        return Ok(true);
-    }
-    profile_process_running(profile)
+    locks_in_use(profile)
 }
 
 // Persistent LOCK/lockfile files can remain after exit: test exclusivity, not mere existence.
@@ -184,65 +195,10 @@ pub(super) fn locks_in_use(profile: &Path) -> Result<bool> {
     Ok(false)
 }
 
-#[cfg(windows)]
-fn profile_process_running(profile: &Path) -> Result<bool> {
-    // Windows Chromium uses a process singleton as well as file locks. This fixed,
-    // read-only query returns only busy/idle for our exact dedicated directory.
-    let powershell =
-        PathBuf::from(std::env::var_os("SystemRoot").ok_or(AuthError::BrowserConnection)?)
-            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
-    let script = r#"$ErrorActionPreference = 'Stop'
-try {
-    $pattern = '(?i)--user-data-dir=(?:"?)' + [regex]::Escape($env:XARCHIVE_LOGIN_PROFILE) + '(?=["\s]|$)'
-    $busy = Get-CimInstance Win32_Process -Filter "Name = 'msedge.exe' OR Name = 'chrome.exe'" | Where-Object { $_.CommandLine -match $pattern }
-    if ($busy) { [Console]::Write('busy') } else { [Console]::Write('idle') }
-} catch { exit 1 }
-"#;
-    let mut child = command(&powershell)
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .env("XARCHIVE_LOGIN_PROFILE", profile)
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(|_| AuthError::BrowserConnection)?;
-    if !wait_exit(&mut child, Duration::from_secs(6))? {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(AuthError::BrowserConnection);
-    }
-    if !child
-        .try_wait()
-        .map_err(|_| AuthError::BrowserConnection)?
-        .is_some_and(|status| status.success())
-    {
-        return Err(AuthError::BrowserConnection);
-    }
-    let mut output = String::new();
-    child
-        .stdout
-        .take()
-        .ok_or(AuthError::BrowserConnection)?
-        .take(16)
-        .read_to_string(&mut output)
-        .map_err(|_| AuthError::BrowserConnection)?;
-    match output.as_str() {
-        "busy" => Ok(true),
-        "idle" => Ok(false),
-        _ => Err(AuthError::BrowserConnection),
-    }
-}
-#[cfg(not(windows))]
-fn profile_process_running(_: &Path) -> Result<bool> {
-    Err(AuthError::BrowserConnection)
-}
-
-fn wait_exit(child: &mut Child, timeout: Duration) -> Result<bool> {
+fn wait_exit(reader: &mut Headless, timeout: Duration) -> Result<bool> {
     let deadline = Instant::now() + timeout;
     loop {
-        if child
-            .try_wait()
-            .map_err(|_| AuthError::BrowserConnection)?
-            .is_some()
-        {
+        if !reader.running()? {
             return Ok(true);
         }
         if Instant::now() >= deadline {
@@ -264,6 +220,9 @@ pub(super) fn read_and_close(reader: &mut impl CookieReader) -> Result<Credentia
     result
 }
 struct Headless {
+    #[cfg(windows)]
+    child: job::Reader,
+    #[cfg(not(windows))]
     child: Child,
     cdp: Option<cdp::Cdp>,
     stopped: bool,
@@ -277,6 +236,10 @@ impl Headless {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(_) => return Err(AuthError::BrowserConnection),
         }
+        #[cfg(windows)]
+        let child = job::Reader::start(executable, &headless_args(profile))
+            .map_err(|_| AuthError::BrowserConnection)?;
+        #[cfg(not(windows))]
         let child = command(executable)
             .args(headless_args(profile))
             .spawn()
@@ -288,12 +251,7 @@ impl Headless {
         };
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            if reader
-                .child
-                .try_wait()
-                .map_err(|_| AuthError::BrowserConnection)?
-                .is_some()
-            {
+            if !reader.running()? {
                 return Err(AuthError::BrowserConnection);
             }
             if port_file.exists() {
@@ -310,6 +268,13 @@ impl Headless {
             }
             thread::sleep(Duration::from_millis(100));
         }
+    }
+    fn running(&mut self) -> Result<bool> {
+        #[cfg(windows)]
+        let running = self.child.running();
+        #[cfg(not(windows))]
+        let running = self.child.try_wait().map(|status| status.is_none());
+        running.map_err(|_| AuthError::BrowserConnection)
     }
 }
 impl CookieReader for Headless {
@@ -332,7 +297,7 @@ impl CookieReader for Headless {
 impl Drop for Headless {
     fn drop(&mut self) {
         if self.close().is_err() {
-            let _ = self.child.kill();
+            let _ = self.terminate();
         }
     }
 }
@@ -360,9 +325,13 @@ impl ReaderProcess for Headless {
         }
     }
     fn wait(&mut self, timeout: Duration) -> Result<bool> {
-        wait_exit(&mut self.child, timeout)
+        wait_exit(self, timeout)
     }
     fn terminate(&mut self) -> Result<()> {
-        self.child.kill().map_err(|_| AuthError::BrowserConnection)
+        #[cfg(windows)]
+        let result = self.child.terminate();
+        #[cfg(not(windows))]
+        let result = self.child.kill();
+        result.map_err(|_| AuthError::BrowserConnection)
     }
 }

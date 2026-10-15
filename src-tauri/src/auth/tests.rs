@@ -327,6 +327,37 @@ fn occupancy_combines_process_and_profile_signals_and_refuses_unknown_state() {
     }
 }
 #[test]
+#[cfg(windows)]
+fn nested_profile_locks_and_cookies_are_busy_only_while_exclusively_held() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let directory = fixture();
+    let profile = pending(directory.path()).profile;
+    let nested = profile.join("Default/Network");
+    fs::create_dir_all(&nested).unwrap();
+    for name in [
+        "LOCK",
+        "lockfile",
+        "SingletonLock",
+        "SingletonSocket",
+        "SingletonCookie",
+        "Cookies",
+    ] {
+        let path = nested.join(name);
+        fs::write(&path, b"synthetic stale file").unwrap();
+        assert!(!browser::profile_in_use(&profile).unwrap());
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        assert!(browser::profile_in_use(&profile).unwrap());
+        drop(held);
+        assert!(!browser::profile_in_use(&profile).unwrap());
+    }
+    assert!(browser::profile_in_use(&profile.join("missing-directory")).is_err());
+}
+#[test]
 fn busy_browser_prevents_read_save_and_forced_cleanup() {
     let directory = fixture();
     let mut manager = manager(directory.path());
@@ -902,28 +933,13 @@ fn clear_pending_profile_checks_its_browser_and_releases_only_after_deletion() {
 #[test]
 #[cfg(windows)]
 fn dedicated_profile_rejects_junctions_before_prepare_or_clear() {
-    use std::os::windows::process::CommandExt;
     let directory = fixture();
     let target = directory.path().join("untouched");
     fs::create_dir_all(&target).unwrap();
     fs::write(target.join("keep"), b"synthetic retained bytes").unwrap();
     let profile = directory.path().join(LOGIN_PROFILE);
     fs::create_dir_all(profile.parent().unwrap()).unwrap();
-    let junction = |link: &Path| {
-        let output = std::process::Command::new("cmd.exe")
-            .args(["/c", "mklink", "/J"])
-            .arg(link.to_str().unwrap().replace('/', "\\"))
-            .arg(target.to_str().unwrap().replace('/', "\\"))
-            .creation_flags(0x08000000)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "junction fixture failed: {} {}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    };
+    let junction = |link: &Path| crate::test_support::junction(link, &target).unwrap();
     junction(&profile);
     assert!(PendingLogin::prepare(directory.path(), "").is_err());
     let mut manager = LoginManager::default();
