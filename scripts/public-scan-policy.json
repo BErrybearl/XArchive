@@ -3,6 +3,7 @@
     "THIRD_PARTY_NOTICES.md": "9d90b9137ffb354f87abb8b4310ac20492fa435ffe7514f3d7aeb3244340abf7"
   },
   "publicRepositories": [
+    "BErrybearl/XArchive",
     "CandyACE/x-downloader",
     "rust-lang/crates.io-index",
     "sponsors/ai",
