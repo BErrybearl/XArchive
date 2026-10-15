@@ -621,7 +621,7 @@
         {#each importReport.notices as n}<p class="help">{n}</p>{/each}
         {#if importReport.missing.length||importReport.mismatches.length}<h3>缺失与不一致</h3>{#each [...importReport.missing,...importReport.mismatches] as issue}<p class="help">{issue}</p>{/each}{/if}
         {#if importReport.pending.length}<h3>旧版待重试队列</h3>{#each importReport.pending as pending}<p>{pending.key}</p><pre>{JSON.stringify(pending.items,null,2)}</pre>{/each}{/if}
-        <p class="path-label">完整报告：{importReport.report_path}</p><p class="path-label">只读副本：{importReport.snapshot}</p>
+        {#if importReport.report_path}<p class="path-label">完整报告：{importReport.report_path}</p>{/if}{#if importReport.snapshot}<p class="path-label">只读副本：{importReport.snapshot}</p>{/if}
       {/if}
     {/if}
   </div>

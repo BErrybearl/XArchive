@@ -127,8 +127,13 @@ fn exact_sources_account_isolation_retry_and_repeat() {
     );
     assert!(imported.inspect().unwrap().untracked_files.is_empty());
     drop(imported);
-    assert!(Path::new(&report.snapshot).starts_with(root.join("temporary")));
-    assert!(Path::new(&report.report_path).is_file());
+    assert!(report.snapshot.is_empty() && report.report_path.is_empty());
+    assert!(fs::read_dir(root.join("temporary")).unwrap().all(|e| {
+        !e.unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("legacy-import-")
+    }));
     let db = Connection::open_with_flags(
         root.join("archive.sqlite3"),
         OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -247,6 +252,8 @@ fn corrupted_media_and_metadata_report_unpassed() {
     let saved: serde_json::Value =
         serde_json::from_reader(File::open(report.report_path).unwrap()).unwrap();
     assert_eq!(saved["passed"], false);
+    assert!(Path::new(&report.snapshot).is_file());
+    assert!(Path::new(&report.snapshot).starts_with(root.join("temporary")));
 }
 
 #[test]

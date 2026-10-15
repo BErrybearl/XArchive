@@ -11,6 +11,7 @@ use tauri_plugin_dialog::DialogExt;
 
 mod archive;
 mod auth;
+pub mod cli;
 mod export;
 mod layout_commands;
 mod legacy;
@@ -21,6 +22,7 @@ pub mod storage;
 mod test_support;
 
 struct StorageAccess(Mutex<()>);
+struct DirectoryAccess(Mutex<storage::DirectoryLock>);
 impl StorageAccess {
     fn try_acquire(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
         self.0.try_lock().map_err(|_| "数据操作正在进行".to_owned())
@@ -452,6 +454,7 @@ async fn choose_data_directory(
     app: tauri::AppHandle,
     access: tauri::State<'_, StorageAccess>,
     login: tauri::State<'_, LoginAccess>,
+    directory: tauri::State<'_, DirectoryAccess>,
 ) -> Result<Option<storage::StorageStatus>, String> {
     if login
         .0
@@ -487,9 +490,11 @@ async fn choose_data_directory(
     {
         return Err(auth::AuthError::Busy.to_string());
     }
-    storage::select_location(&path)
+    let mut directory = directory.0.lock().map_err(|_| "数据目录锁暂不可用")?;
+    directory
+        .switch(&path, || storage::select_location(&path))
         .map(Some)
-        .map_err(|error| error.to_string())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -871,6 +876,10 @@ async fn import_legacy(
 }
 
 pub fn run() {
+    // Acquire before building Tauri: an occupied directory must never be opened by a window.
+    let directory = storage::configured_root()
+        .and_then(|root| storage::DirectoryLock::acquire(&root))
+        .expect("无法打开 XArchive 数据目录");
     let commands: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
         layout_commands::get_layout_status,
         layout_commands::organize_media,
@@ -917,6 +926,7 @@ pub fn run() {
         stop_legacy_import
     ];
     tauri::Builder::default()
+        .manage(DirectoryAccess(Mutex::new(directory)))
         .manage(StorageAccess(Mutex::new(())))
         .manage(layout_commands::LayoutAccess::default())
         .manage(ImportAccess::default())

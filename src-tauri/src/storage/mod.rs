@@ -1,8 +1,10 @@
 mod accounts;
 mod deletion;
+mod directory_lock;
 pub(crate) mod layout;
 pub use accounts::*;
 pub use deletion::*;
+pub(crate) use directory_lock::DirectoryLock;
 pub use layout::{Layout, LayoutProgress};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -108,11 +110,15 @@ pub fn default_root() -> Result<PathBuf> {
         Ok(project.join(".runtime").join("development"))
     } else {
         let executable = std::env::current_exe()?;
-        let directory = executable
-            .parent()
-            .ok_or_else(|| invalid("无法确定程序目录"))?;
-        Ok(directory.join("data"))
+        portable_root(&executable)
     }
+}
+
+pub(crate) fn portable_root(executable: &Path) -> Result<PathBuf> {
+    Ok(executable
+        .parent()
+        .ok_or_else(|| invalid("无法确定程序目录"))?
+        .join("data"))
 }
 
 #[derive(Serialize, Deserialize)]

@@ -45,6 +45,19 @@ pub struct Pending {
     pub items: serde_json::Value,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct DigestCheck {
+    pub source: String,
+    pub legacy_declared: Option<String>,
+    pub legacy_sha256: String,
+    pub legacy_bytes: u64,
+    pub file_sha256: Option<String>,
+    pub file_bytes: Option<u64>,
+    pub index_sha256: Option<String>,
+    pub index_bytes: Option<i64>,
+    pub passed: bool,
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Report {
     pub passed: bool,
@@ -55,6 +68,7 @@ pub struct Report {
     pub source_sha256_before: String,
     pub source_sha256_after: String,
     pub counts: Counts,
+    pub digests: Vec<DigestCheck>,
     pub missing: Vec<String>,
     pub mismatches: Vec<String>,
     pub pending: Vec<Pending>,
@@ -135,7 +149,7 @@ fn stopped(cancel: &AtomicBool) -> bool {
 }
 
 /// Also applied in release builds to reject traversal and reparse points.
-fn validate_destination(root: &Path) -> Result<()> {
+pub(crate) fn validate_destination(root: &Path) -> Result<()> {
     if !root.is_absolute()
         || root
             .components()
@@ -274,6 +288,24 @@ pub fn import(
     serde_json::to_writer_pretty(&mut file, &report)
         .map_err(|_| invalid("无法保存旧库核对报告"))?;
     file.sync_all()?;
+    drop(file);
+    if report.passed && report.error.is_none() && !report.stopped {
+        // Only this run's own copy directory, and only when it is directly under temporary/.
+        if directory.parent() == Some(root.join("temporary").as_path())
+            && storage::check_path(&directory).is_ok()
+            && fs::remove_dir_all(&directory).is_ok()
+        {
+            report.snapshot.clear();
+            report.report_path.clear();
+            report
+                .notices
+                .push("核对通过，本次旧库副本及临时报告已自动删除；原旧库未改动。".into());
+        } else {
+            report
+                .notices
+                .push("核对通过，但旧库副本未能自动删除，可在核对后手动清理。".into());
+        }
+    }
     progress(Progress {
         running: false,
         stage: if report.stopped {
@@ -672,6 +704,17 @@ fn verify(
                 }
             }
         };
+        report.digests.push(DigestCheck {
+            source: source.label(),
+            legacy_declared: source.digest.clone(),
+            legacy_sha256: old.0.clone(),
+            legacy_bytes: old.1,
+            file_sha256: None,
+            file_bytes: None,
+            index_sha256: None,
+            index_bytes: None,
+            passed: false,
+        });
         if old.1 == 0 {
             report
                 .mismatches
@@ -707,6 +750,9 @@ fn verify(
             report.missing.push(format!("来源：{}", source.label()));
             continue;
         };
+        let check = report.digests.last_mut().expect("source digest check");
+        check.index_sha256 = Some(hash.clone());
+        check.index_bytes = Some(length);
         actual_sources.insert(sid);
         actual_entities.insert(eid);
         if name != source.filename || url != source.url || source.kind().ok() != Some(kind.as_str())
@@ -735,6 +781,19 @@ fn verify(
             }
         };
         report.counts.digests_checked += 1;
+        let check = report.digests.last_mut().expect("source digest check");
+        check.file_sha256 = Some(actual.0.clone());
+        check.file_bytes = Some(actual.1);
+        check.passed = actual == old
+            && hash == old.0
+            && length >= 0
+            && length as u64 == old.1
+            && old.1 > 0
+            && source
+                .digest
+                .as_ref()
+                .filter(|d| !d.is_empty())
+                .is_none_or(|d| d.eq_ignore_ascii_case(&old.0));
         if actual != old || hash != old.0 || (length < 0 || length as u64 != old.1) {
             report
                 .mismatches
