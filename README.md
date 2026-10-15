@@ -1,5 +1,7 @@
 # XArchive
 
+[![CI](https://github.com/BErrybearl/XArchive/actions/workflows/ci.yml/badge.svg)](https://github.com/BErrybearl/XArchive/actions/workflows/ci.yml)
+
 [English](README.en.md)
 
 个人 X 媒体归档桌面工具，使用 Rust、Tauri 2、Svelte/TypeScript 和 SQLite 构建，以独立窗口和 Windows 便携 EXE 运行。当前应用界面为简体中文。

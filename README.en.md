@@ -1,5 +1,7 @@
 # XArchive
 
+[![CI](https://github.com/BErrybearl/XArchive/actions/workflows/ci.yml/badge.svg)](https://github.com/BErrybearl/XArchive/actions/workflows/ci.yml)
+
 [简体中文](README.md)
 
 A personal desktop tool for archiving media from X accounts. Built with Rust, Tauri 2, Svelte/TypeScript and SQLite, XArchive runs in its own window as a portable Windows EXE.
