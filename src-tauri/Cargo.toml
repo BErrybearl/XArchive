@@ -1,6 +1,6 @@
 [package]
 name = "xarchive"
-version = "0.1.0"
+version = "0.2.0"
 description = "A portable desktop tool for manually archiving X media"
 authors = ["BErrybearl"]
 license = "MIT"

@@ -10,8 +10,12 @@ A personal desktop tool for archiving media from X accounts. Built with Rust, Ta
 - Save images, videos, GIFs and post metadata, with content, quality and UTC date filters.
 - Keep account options, progress and retry queues locally; stop when rate limited and resume manually.
 - Inspect stored files, manage account data and import compatible legacy archives.
+- Browse media directly in folders: layout A groups by account and month; layout C groups by account, then media type (the default). Switch layouts or organize existing files, with stop and resume support.
+- Run windowless `import-legacy` / `verify` commands with JSON and Markdown reports, exit codes and a data directory lock to prevent concurrent use.
+- Automatically remove the current temporary legacy copy after a successful import verification, keeping the original archive intact.
 - Export local archives with full or incremental output and protection for modified files.
 - Use a dedicated Edge/Chrome login profile, Windows system or explicit proxy settings, and connection diagnostics.
+- Track login browsers with Windows Job Objects instead of invoking PowerShell, reducing behavior that may trigger antivirus false positives.
 - Light, dark and system themes; portable data location and EXE replacement updates.
 
 ## Screenshot
@@ -23,7 +27,7 @@ One overview screenshot in the light theme will be added at `docs/screenshot-ove
 
 A single `XArchive.exe` is enough to run the application. Open-source licenses can be viewed in the application’s About panel. Releases also provide an optional ZIP containing the executable and accompanying documentation. Save the EXE in a writable folder, or extract the optional ZIP, then run `XArchive.exe`. Windows 10/11 and Microsoft Edge WebView2 Runtime are required; browser login also needs Edge or Chrome. End users do not need Rust or Node.js.
 
-Create a data directory, log in, add an account and start a full archive. See the [user guide (Simplified Chinese)](使用说明.md) for login, archive options, exports, backups and updates. No hosted release or automatic update service is configured by these source templates.
+Create a data directory, log in, add an account and start a full archive. See the [user guide (Simplified Chinese)](使用说明.md) for login, archive options, exports, backups and updates, and the [changelog (primarily in Chinese)](CHANGELOG.md) for version changes. No automatic update service is configured.
 
 ## Build from source
 
