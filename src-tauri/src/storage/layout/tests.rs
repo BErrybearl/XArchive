@@ -147,6 +147,123 @@ fn collisions_preserve_user_files_and_repeat_without_name_churn() {
         vec![desired]
     );
 }
+#[cfg(windows)]
+#[test]
+fn windows_directory_case_does_not_make_tracked_media_orphans() {
+    let d = isolated_directory();
+    let mut s = Store::open(d.path()).unwrap();
+    fs::create_dir_all(s.root.join("media/@TARGET/图片")).unwrap();
+    s.save_media(&sample("1", "a"), &b"one"[..]).unwrap();
+    let report = s.inspect().unwrap();
+    assert!(report.untracked_files.is_empty(), "{report:?}");
+    let report = s.inspect_account("target").unwrap();
+    assert!(report.untracked_files.is_empty(), "{report:?}");
+}
+#[cfg(windows)]
+#[test]
+fn missing_indexed_paths_still_reserve_windows_case_aliases() {
+    for (first, second) in [("ABC", "abc"), ("Ä", "ä")] {
+        let d = isolated_directory();
+        let mut s = Store::open(d.path()).unwrap();
+        let id = s
+            .save_media(&sample(first, "a"), &b"one"[..])
+            .unwrap()
+            .entity_id;
+        let old = path(&s, id);
+        fs::remove_file(s.root.join(&old)).unwrap();
+        let next = s
+            .save_media(&sample(second, "a"), &b"two"[..])
+            .unwrap()
+            .entity_id;
+        assert!(
+            !s.root.join(&old).exists(),
+            "new entity reused a missing entity's path"
+        );
+        assert!(path(&s, next).ends_with(" (2).jpg"));
+        let report = s.inspect().unwrap();
+        assert_eq!(report.missing_files, vec![old]);
+        assert!(report.changed_files.is_empty() && report.untracked_files.is_empty());
+    }
+}
+#[cfg(windows)]
+#[test]
+fn case_only_organization_does_not_add_collision_suffixes() {
+    let d = isolated_directory();
+    let mut s = Store::open(d.path()).unwrap();
+    let id = s
+        .save_media(&sample("1", "a"), &b"one"[..])
+        .unwrap()
+        .entity_id;
+    let old = path(&s, id);
+    s.connection
+        .execute(
+            "UPDATE users SET screen_name='TARGET' WHERE screen_name='target'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(organize(&mut s, Layout::C).renamed, 0);
+    assert_eq!(path(&s, id), old);
+    intact(&s);
+    assert!(s.inspect().unwrap().untracked_files.is_empty());
+}
+#[cfg(windows)]
+#[test]
+fn failed_move_reserves_its_target_then_resume_and_delete_release_names() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let d = isolated_directory();
+    let mut s = Store::open(d.path()).unwrap();
+    let first = s
+        .save_media(&sample("1", "a"), &b"one"[..])
+        .unwrap()
+        .entity_id;
+    let old = path(&s, first);
+    // Allow reading, but deny file deletion/movement until the handle is dropped.
+    let busy = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(3)
+        .open(s.root.join(&old))
+        .unwrap();
+    let p = s.organize_media(Layout::A, &AtomicBool::new(false), |_| {});
+    assert!(p.error.is_some(), "{p:?}");
+    assert_eq!(path(&s, first), old);
+    let planned: String = s
+        .connection
+        .query_row(
+            "SELECT new_path FROM media_rename_log WHERE entity_id=?1 AND state='planned'",
+            [first],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!s.root.join(&planned).exists());
+    let mut source = sample("1", "a");
+    source.media_key = "another-slot";
+    source.sequence = Some(1);
+    let second = s.save_media(&source, &b"two"[..]).unwrap().entity_id;
+    assert_eq!(path(&s, second), planned.replace(".jpg", " (2).jpg"));
+    drop(busy);
+    organize(&mut s, Layout::A);
+    assert_eq!(path(&s, first), planned);
+    intact(&s);
+    assert!(s.inspect().unwrap().untracked_files.is_empty());
+    let preview = s
+        .preview_account_delete("target", DeleteScope::Images)
+        .unwrap();
+    s.delete_account_data(
+        "target",
+        DeleteScope::Images,
+        &DeleteOptions {
+            preview_token: Some(preview.token),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let restored = s
+        .save_media(&sample("1", "a"), &b"one"[..])
+        .unwrap()
+        .entity_id;
+    assert_eq!(path(&s, restored), planned);
+    intact(&s);
+}
 #[test]
 fn local_dates_cross_month_and_first_source_order() {
     let d = isolated_directory();

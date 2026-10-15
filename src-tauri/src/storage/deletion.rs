@@ -343,6 +343,7 @@ impl Store {
             tx.execute("INSERT INTO account_profiles VALUES (?1,?2,?3) ON CONFLICT(screen_name) DO UPDATE SET settings_json=excluded.settings_json",params![n,if id.is_empty(){None}else{Some(&id)},serde_json::to_string(&settings).map_err(|_|invalid("无法保存账号选项"))?])?;
         }
         tx.commit()?;
+        self.path_reservations = None;
         let mut orphaned = vec![];
         for entity in plan.entities.into_iter().filter(|e| e.remove) {
             let _length = entity.length;

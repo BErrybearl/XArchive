@@ -1,5 +1,8 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
+mod reservations;
+pub(super) use reservations::PathReservations;
+use reservations::same_path_name;
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Layout {
@@ -281,9 +284,10 @@ pub(super) fn build_path(
 }
 pub(super) fn available_path(
     root: &Path,
-    db: &Connection,
+    reserved: &PathReservations,
     desired: &str,
     old: Option<&str>,
+    entity: Option<i64>,
 ) -> Result<String> {
     let (stem, ext) = desired
         .rsplit_once('.')
@@ -295,10 +299,11 @@ pub(super) fn available_path(
             format!("{stem} ({n}).{ext}")
         };
         let path = media_path(root, &relative)?;
-        if old == Some(relative.as_str()) {
-            return Ok(relative);
+        if let Some(old) = old.filter(|old| same_path_name(old, &relative)) {
+            // Keep the recorded spelling for a case-only account rename.
+            return Ok(old.to_owned());
         }
-        let occupied: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM media_entities WHERE relative_path=?1) OR EXISTS(SELECT 1 FROM media_rename_log WHERE new_path=?1 AND state<>'done' AND old_path<>coalesce(?2,''))", params![relative,old], |r| r.get(0))?;
+        let occupied = reserved.occupied(&relative, entity);
         if !path.try_exists()? && !occupied {
             return Ok(relative);
         }
@@ -313,6 +318,19 @@ struct Naming {
     desired: String,
 }
 impl Store {
+    pub(super) fn ensure_path_reservations(&mut self) -> Result<()> {
+        if self.path_reservations.is_none() {
+            self.path_reservations = Some(PathReservations::load(&self.connection)?);
+        }
+        Ok(())
+    }
+    pub(super) fn refresh_path_reservations(&mut self, entity: i64) -> Result<()> {
+        if let Some(mut paths) = self.path_reservations.take() {
+            paths.refresh(&self.connection, entity)?;
+            self.path_reservations = Some(paths);
+        }
+        Ok(())
+    }
     pub fn media_directory(&self, account: Option<&str>) -> Result<PathBuf> {
         let path = if let Some(account) = account {
             let id = self.account_id(account)?.unwrap_or_default();
@@ -434,9 +452,11 @@ impl Store {
             [entity],
         )?;
         tx.commit()?;
+        self.refresh_path_reservations(entity)?;
         Ok(())
     }
     pub(super) fn organize_entity(&mut self, entity: i64, refresh_account: bool) -> Result<bool> {
+        self.ensure_path_reservations()?;
         let Naming {
             old,
             account,
@@ -444,7 +464,15 @@ impl Store {
             ext,
             desired,
         } = self.naming(entity, refresh_account)?;
-        let new = available_path(&self.root, &self.connection, &desired, Some(&old))?;
+        let new = available_path(
+            &self.root,
+            self.path_reservations
+                .as_ref()
+                .ok_or_else(|| invalid("媒体路径索引不可用"))?,
+            &desired,
+            Some(&old),
+            Some(entity),
+        )?;
         if new == old {
             self.connection.execute(
                 "UPDATE media_entities SET kind=?2,ext=?3,naming_account=?4 WHERE entity_id=?1",
@@ -454,6 +482,7 @@ impl Store {
                 "DELETE FROM media_rename_log WHERE entity_id=?1 AND state<>'done'",
                 [entity],
             )?;
+            self.refresh_path_reservations(entity)?;
             return Ok(false);
         }
         let old_path = media_path(&self.root, &old)?;
@@ -461,6 +490,7 @@ impl Store {
         fs::create_dir_all(new_path.parent().ok_or_else(|| invalid("媒体目录无效"))?)?;
         check_path(&new_path)?;
         self.connection.execute("INSERT INTO media_rename_log VALUES(?1,?2,?3,?4,?5,?6,'planned') ON CONFLICT(entity_id) DO UPDATE SET old_path=excluded.old_path,new_path=excluded.new_path,kind=excluded.kind,ext=excluded.ext,naming_account=excluded.naming_account,state='planned'", params![entity,old,new,kind,ext,account])?;
+        self.refresh_path_reservations(entity)?;
         rename_noclobber(&old_path, &new_path)?;
         self.connection.execute(
             "UPDATE media_rename_log SET state='renamed' WHERE entity_id=?1",
@@ -586,11 +616,26 @@ impl Store {
             .prepare("SELECT relative_path FROM media_entities")?;
         let tracked = q
             .query_map([], |r| r.get::<_, String>(0))?
-            .collect::<std::result::Result<std::collections::HashSet<_>, _>>()?;
-        Ok(media_files(&self.root)?
-            .into_iter()
-            .filter(|p| !tracked.contains(p))
-            .collect())
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut identities = std::collections::HashSet::new();
+        for relative in tracked {
+            match media_path(&self.root, &relative)?.canonicalize() {
+                Ok(path) => {
+                    identities.insert(path);
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        let mut untracked = Vec::new();
+        for relative in media_files(&self.root)? {
+            // Resolve actual on-disk spelling: an existing @TARGET folder may
+            // have been reused when the index stored @target on Windows.
+            if !identities.contains(&media_path(&self.root, &relative)?.canonicalize()?) {
+                untracked.push(relative);
+            }
+        }
+        Ok(untracked)
     }
 }
 pub(crate) fn media_files(root: &Path) -> Result<Vec<String>> {
