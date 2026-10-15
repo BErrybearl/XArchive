@@ -157,6 +157,49 @@ fn exact_sources_account_isolation_retry_and_repeat() {
 }
 
 #[test]
+fn successful_cleanup_preserves_previous_copies_and_reports_exclude_login_settings() {
+    let dir = isolated();
+    let file = dir.path().join("legacy.db");
+    fixture(&file);
+    let db = Connection::open(&file).unwrap();
+    db.execute(
+        "INSERT INTO settings VALUES('auth_token', 'synthetic-secret-old-login')",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO settings VALUES('cookies', 'synthetic-secret-old-cookie')",
+        [],
+    )
+    .unwrap();
+    drop(db);
+    let root = dir.path().join("data");
+    let previous = root.join("temporary/legacy-import-previous");
+    fs::create_dir_all(&previous).unwrap();
+    fs::write(previous.join("keep"), b"previous copy").unwrap();
+    fs::create_dir_all(root.join("private")).unwrap();
+    fs::write(
+        root.join("private/synthetic-login"),
+        b"synthetic-secret-new-login",
+    )
+    .unwrap();
+    let report = run(&root, &file);
+    assert!(report.passed, "{report:?}");
+    assert!(report.snapshot.is_empty() && report.report_path.is_empty());
+    assert_eq!(fs::read(previous.join("keep")).unwrap(), b"previous copy");
+    let report = serde_json::to_string(&report).unwrap();
+    assert!(!report.contains("synthetic-secret"));
+    let remaining: Vec<_> = fs::read_dir(root.join("temporary"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(
+        remaining,
+        vec![std::ffi::OsString::from("legacy-import-previous")]
+    );
+}
+
+#[test]
 fn stopped_import_resumes_from_committed_sources() {
     let dir = isolated();
     let file = dir.path().join("legacy.db");

@@ -247,6 +247,7 @@ pub fn status(root: &Path) -> Result<StorageStatus> {
 pub struct Store {
     root: PathBuf,
     connection: Connection,
+    path_reservations: Option<layout::PathReservations>,
 }
 
 impl Store {
@@ -259,6 +260,7 @@ impl Store {
         Ok(Self {
             root: root.to_owned(),
             connection,
+            path_reservations: None,
         })
     }
     /// Only an explicit initialization or task may call this write-capable method.
@@ -342,7 +344,11 @@ impl Store {
             layout::migrate_sequences(&transaction)?;
             transaction.commit()?;
         }
-        let mut store = Self { root, connection };
+        let mut store = Self {
+            root,
+            connection,
+            path_reservations: None,
+        };
         store.recover_renames()?;
         Ok(store)
     }
@@ -355,6 +361,7 @@ impl Store {
     ) -> Result<SaveResult> {
         validate_source(source)?;
         self.recover_renames()?;
+        self.ensure_path_reservations()?;
         check_path(&self.root.join("temporary"))?;
         let mut staged = NamedTempFile::new_in(self.root.join("temporary"))?;
         let mut hash = Sha256::new();
@@ -467,7 +474,9 @@ impl Store {
             let sequence = layout::source_sequence(&transaction, source)?;
             let relative_path = layout::available_path(
                 &self.root,
-                &transaction,
+                self.path_reservations
+                    .as_ref()
+                    .ok_or_else(|| invalid("媒体路径索引不可用"))?,
                 &layout::build_path(
                     &self.root,
                     &transaction,
@@ -479,6 +488,7 @@ impl Store {
                     source.media_type,
                     &ext,
                 )?,
+                None,
                 None,
             )?;
             let destination = media_path(&self.root, &relative_path)?;
@@ -529,6 +539,7 @@ impl Store {
             ],
         )?;
         transaction.commit()?;
+        self.refresh_path_reservations(entity_id)?;
         if reused || repair_candidate.is_some() {
             // A later response can reveal an earlier source. Use the durable rename
             // protocol while retaining the account name chosen at initial storage.
@@ -602,7 +613,6 @@ impl Store {
             untracked_files: Vec::new(),
             temporary_files: 0,
         };
-        let mut tracked = std::collections::HashSet::new();
         let mut statement = self
             .connection
             .prepare("SELECT relative_path, byte_length, sha256 FROM media_entities")?;
@@ -621,14 +631,8 @@ impl Store {
             {
                 report.changed_files.push(relative_path.clone());
             }
-            tracked.insert(relative_path);
         }
-        check_path(&self.root.join("media"))?;
-        for relative in layout::media_files(&self.root)? {
-            if !tracked.contains(&relative) {
-                report.untracked_files.push(relative);
-            }
-        }
+        report.untracked_files = self.untracked_media()?;
         check_path(&self.root.join("temporary"))?;
         report.temporary_files = fs::read_dir(self.root.join("temporary"))?.count();
         Ok(report)

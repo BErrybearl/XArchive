@@ -306,3 +306,43 @@ fn process_rejects_gui_directory_lock_and_no_console_still_saves_reports() {
             .is_file()
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn detached_cli_preserves_all_exit_codes_and_redirected_output() {
+    use std::os::windows::process::CommandExt;
+    let dir = isolated();
+    let source = dir.path().join("old.db");
+    fixture(&source, false);
+    let data = dir.path().join("data");
+    for (args, expected) in [
+        (
+            vec![
+                "import-legacy".as_ref(),
+                "--source".as_ref(),
+                source.as_os_str(),
+                "--data".as_ref(),
+                data.as_os_str(),
+            ],
+            0,
+        ),
+        (
+            vec!["verify".as_ref(), "--data".as_ref(), data.as_os_str()],
+            0,
+        ),
+        (vec!["unknown".as_ref()], 1),
+    ] {
+        let mut cmd = command();
+        cmd.args(args).creation_flags(0x00000008); // DETACHED_PROCESS: no parent console.
+        let output = run(cmd);
+        assert_eq!(output.status.code(), Some(expected), "{output:?}");
+        assert!(!output.stdout.is_empty() || !output.stderr.is_empty());
+    }
+    fs::write(data.join("temporary/leftover"), b"x").unwrap();
+    let mut cmd = command();
+    cmd.args(["verify", "--data"])
+        .arg(&data)
+        .creation_flags(0x00000008);
+    assert_eq!(run(cmd).status.code(), Some(2));
+    assert_eq!(json_reports(&data, "verify-").len(), 2);
+}

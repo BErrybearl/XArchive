@@ -875,11 +875,22 @@ async fn import_legacy(
     result
 }
 
-pub fn run() {
+pub fn run() -> Result<(), String> {
     // Acquire before building Tauri: an occupied directory must never be opened by a window.
-    let directory = storage::configured_root()
+    with_startup_directory(storage::configured_root(), start_gui)
+}
+
+fn with_startup_directory(
+    root: storage::Result<PathBuf>,
+    start: impl FnOnce(storage::DirectoryLock) -> Result<(), String>,
+) -> Result<(), String> {
+    let directory = root
         .and_then(|root| storage::DirectoryLock::acquire(&root))
-        .expect("无法打开 XArchive 数据目录");
+        .map_err(|error| error.to_string())?;
+    start(directory)
+}
+
+fn start_gui(directory: storage::DirectoryLock) -> Result<(), String> {
     let commands: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
         layout_commands::get_layout_status,
         layout_commands::organize_media,
@@ -955,7 +966,7 @@ pub fn run() {
             commands(invoke)
         })
         .build(tauri::generate_context!())
-        .expect("unable to start XArchive")
+        .map_err(|error| error.to_string())?
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 if let Ok(root) = storage::configured_root() {
@@ -965,4 +976,5 @@ pub fn run() {
                 }
             }
         });
+    Ok(())
 }
